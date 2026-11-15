@@ -17,7 +17,7 @@ import GuildConfig from '../models/GuildConfig.js';
 import ReactionRole from '../models/ReactionRole.js';
 import { postReactionRolePanel } from '../features/reactionRoles.js';
 import { composeWelcomeImageEx, resolveImageSrc } from '../utils/imageComposer.js';
-import { startRecurringMessages } from '../features/recurringMessages.js';
+import { startRecurringMessages, buildSchedule, describeSchedule, inferSchedule, getNextRunFor, sendRecurringNow, TIMEZONE } from '../features/recurringMessages.js';
 import { MONGO_URI } from '../database.js';
 import { DATA_DIR, UPLOADS_DIR } from '../paths.js';
 
@@ -684,24 +684,85 @@ async function reloadRecurring(client) {
   try { await startRecurringMessages(client); } catch (e) { console.error('[RECURRING] reload error', e); }
 }
 
+// Lit le formulaire (salon, message, planning) ; renvoie { value } ou { error }
+function readRecurringForm(body = {}) {
+  const channelId = snowflakeOrEmpty(body.channelId);
+  const content = str(body.content, 2000);
+  if (!channelId || !content.trim()) return { error: 'missing' };
+  const built = buildSchedule({
+    mode: body.mode,
+    time: body.time,
+    days: body.days,
+    monthDay: body.monthDay,
+    everyHours: body.everyHours,
+    cron: str(body.cron, 100),
+  });
+  if (built.error) return { error: built.error };
+  return { value: { channelId, content, cron: built.cron, schedule: built.schedule } };
+}
+
+const recRedirect = (res, guildId, params) => res.redirect(`/dashboard/${guildId}?${new URLSearchParams(params)}#recurring`);
+
 app.post('/dashboard/:guildId/recurring', async (req, res) => {
   const guildId = req.guild.id;
-  const channelId = snowflakeOrEmpty(req.body?.channelId);
-  const cronExpr = str(req.body?.cron, 100).trim();
-  const content = str(req.body?.content, 2000);
-  if (!channelId || !cronExpr || !content.trim()) {
-    return res.redirect(`/dashboard/${guildId}?recError=missing#recurring`);
-  }
-  // AVANT : une expression cron invalide faisait planter la planification
-  if (!cron.validate(cronExpr)) {
-    return res.redirect(`/dashboard/${guildId}?recError=cron#recurring`);
-  }
+  const form = readRecurringForm(req.body);
+  if (form.error) return recRedirect(res, guildId, { recError: form.error });
 
   const conf = await getOrCreateConf(guildId);
-  conf.recurringMessages.push({ id: randomUUID(), channelId, cron: cronExpr, content });
+  const msg = { id: randomUUID(), ...form.value, enabled: true };
+  conf.recurringMessages.push(msg);
   await conf.save();
-  await reloadRecurring(req.client); // prise en compte immédiate, sans redémarrer le bot
-  return res.redirect(`/dashboard/${guildId}?recSaved=1#recurring`);
+  await reloadRecurring(req.client); // actif immédiatement, sans redémarrer le bot
+
+  // « Envoyer aussi maintenant » : un premier envoi tout de suite, puis le planning prend le relais
+  if (onToBool(req.body?.sendNow)) {
+    const r = await sendRecurringNow(req.client, guildId, msg);
+    return recRedirect(res, guildId, r.ok ? { recSaved: '1', recSent: '1' } : { recSaved: '1', recSendError: r.error });
+  }
+  return recRedirect(res, guildId, { recSaved: '1' });
+});
+
+app.post('/dashboard/:guildId/recurring/update', async (req, res) => {
+  const guildId = req.guild.id;
+  const id = str(req.body?.id, 64);
+  const form = readRecurringForm(req.body);
+  if (form.error) return recRedirect(res, guildId, { recError: form.error, edit: id });
+
+  const conf = await GuildConfig.findOne({ guildId });
+  const msg = conf?.recurringMessages?.find(r => r.id === id);
+  if (!msg) return recRedirect(res, guildId, { recError: 'notfound' });
+  Object.assign(msg, form.value);
+  await conf.save();
+  await reloadRecurring(req.client);
+
+  if (onToBool(req.body?.sendNow)) {
+    const r = await sendRecurringNow(req.client, guildId, msg.toObject ? msg.toObject() : msg);
+    return recRedirect(res, guildId, r.ok ? { recUpdated: '1', recSent: '1' } : { recUpdated: '1', recSendError: r.error });
+  }
+  return recRedirect(res, guildId, { recUpdated: '1' });
+});
+
+// Envoi immédiat : ne change rien au planning, le prochain envoi reste prévu comme avant
+app.post('/dashboard/:guildId/recurring/send', async (req, res) => {
+  const guildId = req.guild.id;
+  const id = str(req.body?.id, 64);
+  const conf = await GuildConfig.findOne({ guildId }).lean();
+  const msg = conf?.recurringMessages?.find(r => r.id === id);
+  if (!msg) return recRedirect(res, guildId, { recError: 'notfound' });
+  const r = await sendRecurringNow(req.client, guildId, msg);
+  return recRedirect(res, guildId, r.ok ? { recSent: '1' } : { recSendError: r.error });
+});
+
+app.post('/dashboard/:guildId/recurring/toggle', async (req, res) => {
+  const guildId = req.guild.id;
+  const id = str(req.body?.id, 64);
+  const conf = await GuildConfig.findOne({ guildId });
+  const msg = conf?.recurringMessages?.find(r => r.id === id);
+  if (!msg) return recRedirect(res, guildId, { recError: 'notfound' });
+  msg.enabled = msg.enabled === false;
+  await conf.save();
+  await reloadRecurring(req.client);
+  return recRedirect(res, guildId, msg.enabled ? { recResumed: '1' } : { recPaused: '1' });
 });
 
 app.post('/dashboard/:guildId/recurring/delete', async (req, res) => {
@@ -713,7 +774,7 @@ app.post('/dashboard/:guildId/recurring/delete', async (req, res) => {
     await conf.save();
     await reloadRecurring(req.client);
   }
-  return res.redirect(`/dashboard/${guildId}?recDeleted=1#recurring`);
+  return recRedirect(res, guildId, { recDeleted: '1' });
 });
 
 // ------------ XP ------------
@@ -844,6 +905,15 @@ app.get('/dashboard/:guildId', async (req, res) => {
   const rrPanels = await ReactionRole.find({ guildId }).lean();
   const ticketConfig = conf.ticketSystem || {};
 
+  // Infos lisibles pour les messages récurrents (planning en français, prochain/dernier envoi)
+  const fmtDate = (d) => (d ? new Date(d).toLocaleString('fr-FR', { timeZone: TIMEZONE, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null);
+  const recurringInfo = Object.fromEntries((conf.recurringMessages || []).map(r => [r.id, {
+    description: describeSchedule(r),
+    schedule: inferSchedule(r),
+    nextRun: r.enabled === false ? null : fmtDate(getNextRunFor(r.id)),
+    lastSent: fmtDate(r.lastSentAt),
+  }]));
+
   const sampleMember = {
     id: user?.id || '000000000000000000',
     username: user?.username || 'Utilisateur',
@@ -864,6 +934,7 @@ app.get('/dashboard/:guildId', async (req, res) => {
     roles,
     rrPanels,
     ticketConfig,
+    recurringInfo,
     baseUrl: `${req.protocol}://${req.get('host')}`,
     warnings: [],
     query: req.query,

@@ -57,6 +57,7 @@
     guildId: guild.id,
     rrPanels: panels.map(p => ({ _id: String(p._id), title: p.title || '', description: p.description || '', channelId: p.channelId || '', mode: p.mode || 'multi', type: p.type || 'dropdown', entries: (p.entries || []).map(e => ({ emoji: e.emoji || '', label: e.label || '', roleId: e.roleId || '', style: e.style || 'Secondary' })) })),
     roles: roleList.map(r => ({ id: r.id, name: r.name })),
+    recurring: recs.map(r => { const sc = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]?.schedule) || r.schedule || {}; return { id: r.id, channelId: r.channelId, content: r.content, cron: r.cron, schedule: { mode: sc.mode || 'custom', time: sc.time || '09:00', days: [...(sc.days || [])], monthDay: sc.monthDay || 1, everyHours: sc.everyHours || 1 } }; }),
     sample: { mention: user?.global_name || user?.username || 'Utilisateur', username: user?.username || 'Utilisateur', displayName: user?.global_name || user?.username || 'Utilisateur' },
     server: { name: guild.name || '', memberCount: guild.memberCount || 0 },
   };
@@ -416,43 +417,85 @@
   <!-- ===== Messages récurrents ===== -->
   <section class="panel" id="panel-recurring">
     <div class="panel-head">
-      <div><h1>🔁 Messages récurrents</h1><p>Envoyés automatiquement selon un horaire (heure de Paris). Actifs dès l'enregistrement.</p></div>
+      <div><h1>🔁 Messages récurrents</h1><p>Envoyés automatiquement selon le planning choisi (heure de Paris). Tu peux aussi les envoyer tout de suite : le planning continue ensuite normalement.</p></div>
     </div>
     <div class="cards-2">
-      <form class="card" method="post" action="/dashboard/<%= guild.id %>/recurring">
-        <div class="card-head"><div><h2>Nouveau message</h2></div></div>
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/recurring" id="rec-form">
+        <input type="hidden" name="id" id="rec-id" />
+        <div class="card-head">
+          <div><h2 id="rec-form-title">Nouveau message</h2><p id="rec-form-sub">Choisis le salon, écris le message, puis quand l'envoyer.</p></div>
+          <button type="button" class="btn btn-ghost btn-sm" id="rec-cancel" hidden>Annuler</button>
+        </div>
         <div class="card-body stack">
-          <div class="field"><label>Salon</label><select name="channelId" required><%- channelOptions('', '— Choisir —') %></select></div>
+          <div class="field"><label>Salon</label><select name="channelId" id="rec-channel" required><%- channelOptions('', '— Choisir —') %></select></div>
           <div class="field">
-            <label>Horaire (format cron)</label>
-            <input type="text" name="cron" id="cron-input" required placeholder="0 9 * * *" />
-            <div class="inline">
-              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 9 * * *">Tous les jours 9h</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 18 * * 5">Vendredi 18h</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 * * * *">Toutes les heures</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 12 1 * *">Le 1er du mois</button>
-            </div>
-            <span class="hint">minute · heure · jour du mois · mois · jour de semaine (0 = dimanche)</span>
+            <label>Message</label>
+            <textarea name="content" id="rec-content" maxlength="2000" required placeholder="N'oubliez pas de voter pour le serveur ! 🗳️"></textarea>
+            <span class="hint"><span id="rec-count">0</span> / 2000 caractères · les mentions comme <code>@everyone</code> ou <code>&lt;@&amp;ID_du_rôle&gt;</code> fonctionnent</span>
           </div>
-          <div class="field"><label>Message</label><textarea name="content" maxlength="2000" required placeholder="N'oubliez pas de voter pour le serveur ! 🗳️"></textarea></div>
-          <div class="actions"><button class="btn" type="submit">Ajouter</button></div>
+
+          <div class="divider"></div>
+          <h3>Quand l'envoyer</h3>
+          <div class="segmented" role="radiogroup" aria-label="Fréquence">
+            <% [['hourly', 'Toutes les X h'], ['daily', 'Chaque jour'], ['weekly', 'Chaque semaine'], ['monthly', 'Chaque mois'], ['custom', 'Avancé']].forEach(([v, l], i) => { %>
+              <label><input type="radio" name="mode" value="<%= v %>" <%= v === 'daily' ? 'checked' : '' %> /><span><%= l %></span></label>
+            <% }) %>
+          </div>
+
+          <div class="form-grid">
+            <div class="field" data-modes="hourly"><label>Toutes les</label><select name="everyHours" id="rec-everyHours"><% [1, 2, 3, 4, 6, 8, 12].forEach(h => { %><option value="<%= h %>"><%= h === 1 ? '1 heure' : h + ' heures' %></option><% }) %></select></div>
+            <div class="field" data-modes="daily weekly monthly hourly"><label id="rec-time-label">Heure</label><input type="time" name="time" id="rec-time" value="09:00" step="60" /></div>
+            <div class="field" data-modes="monthly"><label>Jour du mois</label><select name="monthDay" id="rec-monthDay"><% for (let d = 1; d <= 28; d++) { %><option value="<%= d %>"><%= d === 1 ? '1er' : d %></option><% } %></select><span class="hint">Jusqu'au 28 pour tomber chaque mois.</span></div>
+          </div>
+          <div class="field" data-modes="weekly">
+            <label>Jours</label>
+            <div class="day-picker">
+              <% [[1, 'Lun'], [2, 'Mar'], [3, 'Mer'], [4, 'Jeu'], [5, 'Ven'], [6, 'Sam'], [0, 'Dim']].forEach(([v, l]) => { %>
+                <label><input type="checkbox" name="days" value="<%= v %>" <%= v === 1 ? 'checked' : '' %> /><span><%= l %></span></label>
+              <% }) %>
+            </div>
+          </div>
+          <div class="field" data-modes="custom">
+            <label>Expression cron</label>
+            <input type="text" name="cron" id="rec-cron" placeholder="0 9 * * 1-5" />
+            <span class="hint">minute · heure · jour du mois · mois · jour de semaine (0 = dimanche). Ex. <code>0 9 * * 1-5</code> = du lundi au vendredi à 9h.</span>
+          </div>
+
+          <div class="callout" id="rec-summary">Chaque jour à 09:00</div>
+
+          <label class="toggle-row"><span class="toggle-text"><strong>Envoyer aussi maintenant</strong><span>Un premier envoi tout de suite, puis le planning prend le relais</span></span><input type="checkbox" class="switch" name="sendNow" value="on" id="rec-sendNow" /></label>
+          <div class="actions"><button class="btn" type="submit" id="rec-submit">Ajouter</button></div>
         </div>
       </form>
+
       <div class="card">
         <div class="card-head"><div><h2>Planifiés</h2></div><span class="chip plain"><%= recs.length %></span></div>
         <div class="card-body">
           <% if (!recs.length) { %><div class="empty">Aucun message planifié.</div><% } else { %>
             <div class="list">
-              <% recs.forEach(r => { const ch = allChannels.find(c => c.id === r.channelId); %>
-                <div class="list-row">
-                  <div class="list-main">
-                    <span class="inline"><span class="tag"># <%= ch?.name || r.channelId %></span><span class="tag"><%= r.cron %></span></span>
-                    <p><%= r.content %></p>
+              <% recs.forEach(r => { const ch = allChannels.find(c => c.id === r.channelId); const info = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]) || {}; const paused = r.enabled === false; %>
+                <div class="rec-item <%= paused ? 'paused' : '' %>">
+                  <div class="inline" style="justify-content:space-between">
+                    <span class="inline"><span class="tag"># <%= ch?.name || 'salon supprimé' %></span><span class="chip <%= paused ? '' : 'on' %>"><%= paused ? 'En pause' : 'Actif' %></span></span>
                   </div>
-                  <form method="post" action="/dashboard/<%= guild.id %>/recurring/delete" data-confirm="Supprimer ce message planifié ?">
-                    <input type="hidden" name="id" value="<%= r.id %>" />
-                    <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
-                  </form>
+                  <strong class="rec-when"><%= info.description || r.cron %></strong>
+                  <p class="rec-content"><%= r.content %></p>
+                  <div class="rec-meta">
+                    <span>Prochain envoi : <b><%= paused ? '—' : (info.nextRun || '—') %></b></span>
+                    <span>Dernier envoi : <b><%= info.lastSent || 'jamais' %></b></span>
+                  </div>
+                  <div class="actions" style="justify-content:flex-start">
+                    <form method="post" action="/dashboard/<%= guild.id %>/recurring/send" data-confirm="Envoyer ce message maintenant dans #<%= ch?.name || '?' %> ?">
+                      <input type="hidden" name="id" value="<%= r.id %>" /><button class="btn btn-sm" type="submit">Envoyer maintenant</button>
+                    </form>
+                    <button class="btn btn-ghost btn-sm" type="button" data-rec-edit="<%= r.id %>">Modifier</button>
+                    <form method="post" action="/dashboard/<%= guild.id %>/recurring/toggle">
+                      <input type="hidden" name="id" value="<%= r.id %>" /><button class="btn btn-ghost btn-sm" type="submit"><%= paused ? 'Reprendre' : 'Mettre en pause' %></button>
+                    </form>
+                    <form method="post" action="/dashboard/<%= guild.id %>/recurring/delete" data-confirm="Supprimer ce message planifié ?" style="margin-left:auto">
+                      <input type="hidden" name="id" value="<%= r.id %>" /><button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+                    </form>
+                  </div>
                 </div>
               <% }) %>
             </div>

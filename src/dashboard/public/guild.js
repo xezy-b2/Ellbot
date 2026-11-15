@@ -24,6 +24,10 @@
     cmdSaved: { '1': 'Commande enregistrée.' },
     cmdDeleted: { '1': 'Commande supprimée.' },
     recSaved: { '1': 'Message planifié.' },
+    recUpdated: { '1': 'Message récurrent modifié.' },
+    recSent: { '1': 'Message envoyé maintenant. Le planning continue normalement.' },
+    recPaused: { '1': 'Message mis en pause.' },
+    recResumed: { '1': 'Message réactivé.' },
     recDeleted: { '1': 'Message planifié supprimé.' },
     welcomeTest: { ok: "Message d'accueil de test envoyé." },
     socialTest: { ok: 'Notification de test envoyée.' },
@@ -35,7 +39,8 @@
     uploadError: (v) => (v === 'FORMAT_INVALIDE' ? 'Format refusé : PNG, JPG, GIF ou WebP uniquement.' : v === 'NOFILE' ? 'Aucun fichier sélectionné.' : `Échec de l'envoi : ${v}`),
     rrError: (v) => ({ DUPLICATE_ROLES: 'Un même rôle apparaît deux fois dans le panneau.', NOT_FOUND: "Ce panneau n'existe plus.", CHANNEL: "Choisis un salon textuel avant de publier.", NO_ENTRIES: 'Ajoute au moins un rôle avant de publier.' }[v] || `Erreur : ${v}`),
     cmdError: () => 'Nom (sans espace) et réponse obligatoires.',
-    recError: (v) => (v === 'cron' ? 'Horaire cron invalide. Exemple : 0 9 * * * = tous les jours à 9h.' : 'Salon, horaire et message sont obligatoires.'),
+    recError: (v) => ({ cron: 'Expression cron invalide. Exemple : 0 9 * * * = tous les jours à 9h.', days: 'Choisis au moins un jour de la semaine.', notfound: "Ce message n'existe plus.", missing: 'Le salon et le message sont obligatoires.' }[v] || 'Erreur lors de l\'enregistrement.'),
+    recSendError: (v) => ({ channel: "Envoi impossible : le salon n'existe plus.", perms: "Envoi impossible : le bot n'a pas la permission d'écrire dans ce salon." }[v] || "L'envoi a échoué."),
     welcomeTest: (v, q) => (v === 'error' ? `Échec du test : ${q.get('w') || 'vérifie le salon et les permissions du bot.'}` : null),
     socialTest: (v) => ({ nosocial: "Twitch n'est pas encore configuré.", nosent: 'Active Twitch et choisis un salon, puis enregistre.', error: "Le bot n'a pas pu envoyer le message (permissions ?)." }[v] || null),
     lbTest: (v) => ({ disabled: 'Active le classement et choisis un salon, puis enregistre.', channel: 'Le salon du classement est introuvable.', error: "Le bot n'a pas pu envoyer le message." }[v] || null),
@@ -126,8 +131,94 @@
     }
   });
 
-  // ---------------- Messages récurrents : raccourcis cron ----------------
-  $$('[data-cron]').forEach(b => b.addEventListener('click', () => { $('#cron-input').value = b.dataset.cron; }));
+  // ---------------- Messages récurrents ----------------
+  const recForm = $('#rec-form');
+  if (recForm) {
+    const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+    const createAction = recForm.getAttribute('action');
+    const modeInputs = $$('input[name="mode"]', recForm);
+    const dayInputs = $$('input[name="days"]', recForm);
+    const content = $('#rec-content');
+    const mode = () => modeInputs.find(i => i.checked)?.value || 'daily';
+
+    function describe() {
+      const time = $('#rec-time').value || '09:00';
+      switch (mode()) {
+        case 'hourly': {
+          const h = Number($('#rec-everyHours').value);
+          const min = time.split(':')[1] || '00';
+          return h > 1 ? `Toutes les ${h} heures, à la minute ${min}` : `Toutes les heures, à la minute ${min}`;
+        }
+        case 'daily': return `Chaque jour à ${time}`;
+        case 'weekly': {
+          const names = dayInputs.filter(i => i.checked).map(i => Number(i.value)).sort().map(d => DAY_NAMES[d]);
+          if (!names.length) return '⚠️ Choisis au moins un jour';
+          if (names.length === 7) return `Chaque jour à ${time}`;
+          return `Chaque ${names.length > 1 ? names.slice(0, -1).join(', ') + ' et ' + names.at(-1) : names[0]} à ${time}`;
+        }
+        case 'monthly': { const d = $('#rec-monthDay').value; return `Le ${d === '1' ? '1er' : d} de chaque mois à ${time}`; }
+        default: return `Cron : ${$('#rec-cron').value || '(à remplir)'}`;
+      }
+    }
+
+    function refresh() {
+      const m = mode();
+      $$('[data-modes]', recForm).forEach(el => { el.hidden = !el.dataset.modes.split(' ').includes(m); });
+      $('#rec-time-label').textContent = m === 'hourly' ? 'Minute de départ' : 'Heure';
+      $('#rec-cron').required = m === 'custom';
+      $('#rec-summary').textContent = `${describe()} (heure de Paris)`;
+      $('#rec-count').textContent = content.value.length;
+    }
+    recForm.addEventListener('input', refresh);
+    recForm.addEventListener('change', refresh);
+
+    function setMode(value) { modeInputs.forEach(i => { i.checked = i.value === value; }); }
+
+    function resetForm() {
+      recForm.reset();
+      recForm.setAttribute('action', createAction);
+      $('#rec-id').value = '';
+      $('#rec-form-title').textContent = 'Nouveau message';
+      $('#rec-form-sub').textContent = "Choisis le salon, écris le message, puis quand l'envoyer.";
+      $('#rec-submit').textContent = 'Ajouter';
+      $('#rec-cancel').hidden = true;
+      $$('.rec-item.editing').forEach(el => el.classList.remove('editing'));
+      refresh();
+    }
+
+    function editMessage(id) {
+      const r = (data.recurring || []).find(x => x.id === id);
+      if (!r) return;
+      resetForm();
+      recForm.setAttribute('action', createAction + '/update');
+      $('#rec-id').value = r.id;
+      $('#rec-channel').value = r.channelId;
+      content.value = r.content;
+      setMode(r.schedule.mode);
+      $('#rec-time').value = r.schedule.time;
+      $('#rec-everyHours').value = String(r.schedule.everyHours);
+      $('#rec-monthDay').value = String(r.schedule.monthDay);
+      dayInputs.forEach(i => { i.checked = r.schedule.days.includes(Number(i.value)); });
+      $('#rec-cron').value = r.schedule.mode === 'custom' ? r.cron : '';
+      $('#rec-form-title').textContent = 'Modifier le message';
+      $('#rec-form-sub').textContent = 'Les changements sont pris en compte dès l\'enregistrement.';
+      $('#rec-submit').textContent = 'Enregistrer';
+      $('#rec-cancel').hidden = false;
+      document.querySelector(`[data-rec-edit="${CSS.escape(id)}"]`)?.closest('.rec-item')?.classList.add('editing');
+      refresh();
+      recForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      content.focus({ preventScroll: true });
+    }
+
+    $$('[data-rec-edit]').forEach(b => b.addEventListener('click', () => editMessage(b.dataset.recEdit)));
+    $('#rec-cancel').addEventListener('click', resetForm);
+    recForm.addEventListener('submit', (e) => {
+      if (mode() === 'weekly' && !dayInputs.some(i => i.checked)) { e.preventDefault(); toast('Choisis au moins un jour de la semaine.', 'error'); }
+    });
+
+    refresh();
+    if (query.get('edit')) editMessage(query.get('edit'));
+  }
 
   // ---------------- Rôles réaction : éditeur ----------------
   const rrForm = $('#rrForm');

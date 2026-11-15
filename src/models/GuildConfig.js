@@ -46,7 +46,17 @@ const RecurringMessageSchema = new mongoose.Schema({
   id: { type: String, required: true },
   channelId: { type: String, default: '' },
   cron: { type: String, default: '' },
-  content: { type: String, default: '' }
+  content: { type: String, default: '' },
+  // Planning tel que saisi dans le dashboard (pour pouvoir le modifier facilement)
+  schedule: {
+    mode: { type: String, enum: ['hourly', 'daily', 'weekly', 'monthly', 'custom'], default: 'custom' },
+    time: { type: String, default: '09:00' },       // HH:MM (heure de Paris)
+    days: { type: [Number], default: [] },          // 0 = dimanche … 6 = samedi
+    monthDay: { type: Number, default: 1 },         // 1 à 28
+    everyHours: { type: Number, default: 1 },       // 1 à 23
+  },
+  enabled: { type: Boolean, default: true },
+  lastSentAt: { type: Date, default: null },
 }, { _id: false });
 
 const WelcomeSchema = new mongoose.Schema({
