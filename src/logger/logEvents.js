@@ -2,6 +2,7 @@
 
 import { getGuildConfig } from '../utils/configCache.js';
 import { EmbedBuilder } from 'discord.js';
+import { logDeletedMessage, logBulkDelete } from './deleteLogs.js';
 
 function getLogChannel(guild, conf) {
   const s = conf?.logs;
@@ -64,32 +65,27 @@ ${newContent}
   });
 
   client.on('messageDelete', async (message) => {
-    // Vérifier si le message a une guilde, et si on a au moins l'ID de l'auteur.
-    if (!message.guild || !message.author?.id) return; 
+    if (!message.guild) return;
+    if (message.author?.bot) return; // les messages des bots (dont le bot lui-même) ne sont pas loggés
 
     const conf = await getGuildConfig(message.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.messageDeleted) return;
-    
+
     const ch = getLogChannel(message.guild, conf);
-    if (!ch) return;
+    if (!ch || ch.id === message.channelId) return; // jamais de log sur le salon de logs lui-même
 
-    // --- CORRECTION messageDelete ---
-    const authorTag = message.author.tag || 'Inconnu';
-    const authorId = message.author.id || 'ID inconnu';
-    const messageContent = message.content?.slice(0, 1024) ?? '(Contenu non disponible ou message trop ancien)';
-    
-    const e = new EmbedBuilder()
-      .setColor(0xef4444)
-      .setTitle('🗑️ Message supprimé')
-      .setDescription(`**Auteur :** ${authorTag} (<@${authorId}>)
-**Contenu :**
-\`\`\`
-${messageContent}
-\`\`\`
-**Dans le salon :** <#${message.channel.id}>`)
-      .setTimestamp(new Date());
+    await logDeletedMessage(message, ch);
+  });
 
-    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(() => {});
+  client.on('messageDeleteBulk', async (messages, channel) => {
+    if (!channel?.guild) return;
+    const conf = await getGuildConfig(channel.guild.id).catch(() => null);
+    if (!conf?.logs?.enabled || !conf.logs.messageDeleted) return;
+
+    const ch = getLogChannel(channel.guild, conf);
+    if (!ch || ch.id === channel.id) return;
+
+    await logBulkDelete(messages, channel, ch);
   });
 
   client.on('guildBanAdd', async (ban) => {
