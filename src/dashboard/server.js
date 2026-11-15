@@ -872,7 +872,8 @@ app.post('/dashboard/:guildId/birthdays/test', async (req, res) => {
   const channel = conf?.birthdays?.channelId ? req.guild.channels.cache.get(conf.birthdays.channelId) : null;
   if (!channel?.isTextBased?.()) return res.redirect(`/dashboard/${req.guild.id}?bdTest=channel#birthdays`);
   const text = (conf.birthdays.message || '🎂 Joyeux anniversaire {user} ! {age}').replaceAll('{user}', `<@${req.user.id}>`).replaceAll('{age}', '(25 ans)').trim();
-  await channel.send({ content: '*(Message de test)*', embeds: [{ color: 0xf47fff, description: text, thumbnail: { url: req.member.displayAvatarURL({ size: 256 }) } }], allowedMentions: { parse: [] } });
+  const roles = [...new Set([...String(conf.birthdays.message || '').matchAll(/<@&(\d{17,20})>/g)].map(m => `<@&${m[1]}>`))];
+  await channel.send({ content: ['*(Test)*', `<@${req.user.id}>`, ...roles].join(' '), embeds: [{ color: 0xf47fff, description: text, thumbnail: { url: req.member.displayAvatarURL({ size: 256 }) } }], allowedMentions: { parse: ['roles', 'users'] } });
   res.redirect(`/dashboard/${req.guild.id}?bdTest=ok#birthdays`);
 });
 
@@ -977,8 +978,9 @@ app.post('/dashboard/:guildId/social/test', async (req, res) => {
 
   const username = String(block.usernames?.[0] || '').trim();
   const embed = {
-    title: username ? `🔴 ${username} est en live ! (TEST)` : '🔔 Notification (TEST)',
-    description: block.message?.trim() || (username ? `Regarde le stream de **${username}** sur Twitch !` : 'Notification de test'),
+    title: username ? `🔴 ${username} est en direct sur Twitch ! (TEST)` : '🔔 Notification (TEST)',
+    description: username ? `**Titre du live**` : 'Notification de test',
+    fields: [{ name: 'Jeu', value: 'Just Chatting', inline: true }, { name: 'Spectateurs', value: '42', inline: true }],
     color: parseInt(hexColor(block.embedColor, '#5865F2').slice(1), 16),
     timestamp: new Date().toISOString(),
   };
@@ -987,8 +989,9 @@ app.post('/dashboard/:guildId/social/test', async (req, res) => {
   }
 
   try {
-    // Pas de @everyone pour un simple test
-    await ch.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    // Comme la vraie annonce : le message au-dessus (ses rôles pinguent), mais jamais @everyone pour un test
+    const content = (block.message || '').trim();
+    await ch.send({ ...(content ? { content } : {}), embeds: [embed], allowedMentions: { parse: ['roles', 'users'] } });
     return res.redirect(`/dashboard/${guild.id}?socialTest=ok#social`);
   } catch (e) {
     console.log('[SOCIAL TEST] send err', e?.message || e);
@@ -1083,11 +1086,11 @@ app.post('/dashboard/:guildId/leaderboard/test', async (req, res) => {
     '🥈 **@Bob** — 389 messages',
     '🥉 **@Charlie** — 275 messages',
   ];
-  const desc = (lb.monthlyMessage?.trim() ? lb.monthlyMessage.trim() + '\n\n' : '') + lines.join('\n');
-
+  // Comme le vrai classement : le message au-dessus (ses rôles pinguent), le classement en dessous
   await ch.send({
-    embeds: [{ title: '🏆 Classement du mois — TEST', description: desc, color: 0xF1C40F, timestamp: new Date().toISOString() }],
-    allowedMentions: { parse: [] },
+    content: lb.monthlyMessage?.trim() || 'Voici le classement du mois !',
+    embeds: [{ title: '🏆 Classement du mois — TEST', description: lines.join('\n'), color: 0xF1C40F, timestamp: new Date().toISOString() }],
+    allowedMentions: { parse: ['roles', 'users'] },
   });
   return res.redirect(`/dashboard/${guild.id}?lbTest=ok#leaderboard`);
 });

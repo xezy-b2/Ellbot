@@ -22,7 +22,8 @@ function buildVideoMessage(s, channelName, video, { test = false } = {}) {
   return {
     content: parts.join(' ').slice(0, 2000),
     embeds: [embed],
-    allowedMentions: { parse: test ? [] : ['roles', 'users', ...(s.pingEveryone ? ['everyone'] : [])] },
+    // Test : les rôles écrits dans le message pinguent comme en vrai, mais jamais @everyone
+    allowedMentions: { parse: ['roles', 'users', ...(s.pingEveryone && !test ? ['everyone'] : [])] },
   };
 }
 

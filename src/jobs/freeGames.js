@@ -144,7 +144,8 @@ function buildGameMessage(store, game, { test = false, guild = null } = {}) {
   return {
     ...(content ? { content: content.slice(0, 2000) } : {}),
     embeds: [embed],
-    allowedMentions: { parse: test ? [] : ['roles', 'users', ...(store.pingEveryone ? ['everyone'] : [])] },
+    // Test : les rôles écrits dans le message pinguent comme en vrai, mais jamais @everyone
+    allowedMentions: { parse: ['roles', 'users', ...(store.pingEveryone && !test ? ['everyone'] : [])] },
   };
 }
 

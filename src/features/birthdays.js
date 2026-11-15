@@ -85,7 +85,9 @@ export async function runBirthdaysForGuild(client, conf, { force = false } = {})
         .setColor(0xf47fff)
         .setDescription(fillMessage(b.message, member.id, age))
         .setThumbnail(member.displayAvatarURL({ size: 256 }));
-      await channel.send({ content: `<@${member.id}>`, embeds: [embed], allowedMentions: { users: [member.id] } })
+      // Les rôles écrits dans le message sont recopiés au-dessus de l'encadré (sinon Discord ne les notifie pas)
+      const roles = [...new Set([...String(b.message || '').matchAll(/<@&(\d{17,20})>/g)].map(m => `<@&${m[1]}>`))];
+      await channel.send({ content: [`<@${member.id}>`, ...roles].join(' '), embeds: [embed], allowedMentions: { parse: ['roles'], users: [member.id] } })
         .catch(e => LOG(`Envoi impossible (${guild.name}) :`, e.message));
     }
   }
