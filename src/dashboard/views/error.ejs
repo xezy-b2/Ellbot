@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('partials/head', { title: `Erreur ${status}` }) %>
+</head>
+<body>
+  <div class="center-box">
+    <div class="code"><%= status %></div>
+    <h1 style="font-size:20px"><%= heading %></h1>
+    <p><%= message %></p>
+    <div class="inline" style="justify-content:center">
+      <a class="btn" href="/dashboard">Mes serveurs</a>
+      <a class="btn btn-ghost" href="/">Accueil</a>
+    </div>
+  </div>
+</body>
+</html>

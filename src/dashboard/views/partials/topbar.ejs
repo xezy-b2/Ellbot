@@ -1,0 +1,17 @@
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="brand-logo"><% if (typeof bot !== 'undefined' && bot?.avatar) { %><img src="<%= bot.avatar %>" alt="" /><% } else { %>⚙️<% } %></span>
+    <span><%= (typeof bot !== 'undefined' && bot?.username) || 'Dashboard' %></span>
+  </a>
+  <div class="spacer"></div>
+  <% if (user) { %>
+    <a class="btn btn-ghost btn-sm" href="/dashboard">Mes serveurs</a>
+    <span class="user-pill">
+      <img class="avatar" src="<%= user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : 'https://cdn.discordapp.com/embed/avatars/0.png' %>" alt="" />
+      <%= user.global_name || user.username %>
+    </span>
+    <a class="btn btn-ghost btn-sm" href="/logout">Déconnexion</a>
+  <% } else { %>
+    <a class="btn btn-sm" href="/auth/discord">Se connecter</a>
+  <% } %>
+</header>

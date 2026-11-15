@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('partials/head', { title: 'Dashboard du bot' }) %>
+</head>
+<body>
+  <%- include('partials/topbar') %>
+
+  <main class="page">
+    <section class="hero">
+      <div>
+        <h1>Gère ton bot Discord <span>sans toucher au code.</span></h1>
+        <p class="lead">Messages d'accueil, tickets, XP, classement du mois, rôles réaction, notifications Twitch, logs et auto-modération : tout se règle ici, serveur par serveur.</p>
+        <div class="inline">
+          <% if (!user) { %>
+            <a class="btn btn-lg" href="/auth/discord">Se connecter avec Discord</a>
+          <% } else { %>
+            <a class="btn btn-lg" href="/dashboard">Choisir un serveur</a>
+          <% } %>
+        </div>
+        <p class="hint" style="margin-top:14px">Seuls les administrateurs d'un serveur peuvent le configurer.</p>
+      </div>
+
+      <div class="hero-visual" aria-hidden="true">
+        <div class="discord">
+          <div class="discord-msg">
+            <img class="avatar" src="<%= bot?.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png' %>" alt="" />
+            <div style="min-width:0;flex:1">
+              <div class="discord-author"><%= bot?.username || 'Bot' %> <span class="bot-tag">BOT</span> <time>Aujourd'hui à 14:02</time></div>
+              <div class="discord-content"><span class="mention">@Nouveau</span></div>
+              <div class="discord-embed">
+                <div class="e-title">Ho ! Un nouveau membre !</div>
+                <div class="e-desc">Bienvenue sur le serveur 🎉 Tu es notre 1&nbsp;248ᵉ membre.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="feature"><div class="icon">👋</div><h2>Accueil & départs</h2><p>Messages personnalisés avec image générée, avatar et variables.</p></div>
+      <div class="feature"><div class="icon">🏆</div><h2>XP & classement</h2><p>Niveaux, cartes de rang et rôles automatiques pour le top du mois.</p></div>
+      <div class="feature"><div class="icon">📩</div><h2>Tickets</h2><p>Panneau d'ouverture, rôle support et transcription HTML à la fermeture.</p></div>
+      <div class="feature"><div class="icon">🧩</div><h2>Rôles réaction</h2><p>Boutons ou menu déroulant, un ou plusieurs rôles au choix.</p></div>
+      <div class="feature"><div class="icon">📣</div><h2>Twitch</h2><p>Annonce automatique quand tes streamers passent en live.</p></div>
+      <div class="feature"><div class="icon">🛡️</div><h2>Modération</h2><p>Logs, mots interdits, anti-liens et anti-spam.</p></div>
+    </section>
+  </main>
+</body>
+</html>

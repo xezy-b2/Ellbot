@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('partials/head', { title: 'Mes serveurs' }) %>
+</head>
+<body>
+  <%- include('partials/topbar') %>
+
+  <main class="page">
+    <div class="page-head">
+      <div>
+        <h1>Tes serveurs</h1>
+        <p>Les serveurs où tu es administrateur et où le bot est présent.</p>
+      </div>
+      <a class="btn btn-ghost btn-sm" href="/auth/discord">↻ Actualiser la liste</a>
+    </div>
+
+    <% const list = Array.isArray(guilds) ? guilds : []; %>
+    <% if (list.length === 0) { %>
+      <div class="empty">
+        <p style="font-weight:600;color:var(--text);margin-bottom:6px">Aucun serveur à afficher</p>
+        <p>Vérifie que le bot est bien sur ton serveur, que tu y es administrateur et que tu es connecté avec le bon compte Discord.</p>
+      </div>
+    <% } else { %>
+      <ul class="server-grid">
+        <% list.forEach(g => { %>
+          <li class="server-card">
+            <div class="server-id">
+              <% if (g.icon) { %>
+                <img class="server-icon" src="https://cdn.discordapp.com/icons/<%= g.id %>/<%= g.icon %>.png?size=128" alt="" />
+              <% } else { %>
+                <span class="server-icon"><%= (g.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() %></span>
+              <% } %>
+              <div style="min-width:0">
+                <h2 title="<%= g.name %>"><%= g.name %></h2>
+                <span class="hint mono"><%= g.id %></span>
+              </div>
+            </div>
+            <a class="btn btn-block" href="/dashboard/<%= g.id %>">Configurer</a>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </main>
+</body>
+</html>

@@ -1,0 +1,125 @@
+// src/logger/logEvents.js
+
+import GuildConfig from '../models/GuildConfig.js';
+import { EmbedBuilder } from 'discord.js';
+
+function getLogChannel(guild, conf) {
+  const s = conf?.logs;
+  if (!s?.enabled) return null;
+  const ch = guild.channels.cache.get(s.channelId);
+  if (!ch?.isTextBased?.()) return null;
+  return ch;
+}
+
+export function bindLogHandlers(client) {
+  client.on('guildMemberAdd', async (member) => {
+    const conf = await GuildConfig.findOne({ guildId: member.guild.id }).lean().catch(()=>null);
+    if (!conf?.logs?.enabled || !conf.logs.joins) return;
+    const ch = getLogChannel(member.guild, conf);
+    if (!ch) return;
+    const e = new EmbedBuilder()
+      .setColor(0x22c55e)
+      .setTitle('➕ Arrivée')
+      .setDescription(`${member.user.tag} (<@${member.id}>) a rejoint le serveur.`)
+      .setTimestamp(new Date());
+
+    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
+  });
+
+  client.on('messageUpdate', async (_old, msg) => {
+    // AVANT : avec les partials activés, msg.author pouvait être null → crash
+    if (msg.partial) msg = await msg.fetch().catch(() => null);
+    if (!msg?.guild || !msg.author || msg.author.bot) return;
+    // Si le contenu n'a pas changé (ex : simple ajout d'embed), on s'arrête
+    if (_old.content != null && _old.content === msg.content) return;
+
+    const conf = await GuildConfig.findOne({ guildId: msg.guild.id }).lean().catch(() => null);
+    if (!conf?.logs?.enabled || !conf.logs.messageEdited) return; 
+    
+    const ch = getLogChannel(msg.guild, conf);
+    if (!ch) return;
+
+    // --- CORRECTION messageUpdate ---
+    const oldContent = _old.content?.slice(0, 1024) ?? '(Contenu initial non disponible)';
+    const newContent = msg.content?.slice(0, 1024) ?? '(Nouveau contenu non disponible)';
+    
+    if (oldContent === '(Contenu initial non disponible)' && newContent === '(Nouveau contenu non disponible)') return;
+    
+    const e = new EmbedBuilder()
+      .setColor(0xf59e0b)
+      .setTitle('📝 Message édité')
+      .setDescription(`**Auteur :** ${msg.author.tag} (<@${msg.author.id}>)
+**Ancien contenu :**
+\`\`\`
+${oldContent}
+\`\`\`
+**Nouveau contenu :**
+\`\`\`
+${newContent}
+\`\`\`
+**Dans le salon :** <#${msg.channel.id}> [Voir le message](${msg.url})`)
+      .setTimestamp(new Date());
+
+    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
+  });
+
+  client.on('messageDelete', async (message) => {
+    // Vérifier si le message a une guilde, et si on a au moins l'ID de l'auteur.
+    if (!message.guild || !message.author?.id) return; 
+
+    const conf = await GuildConfig.findOne({ guildId: message.guild.id }).lean().catch(() => null);
+    if (!conf?.logs?.enabled || !conf.logs.messageDeleted) return;
+    
+    const ch = getLogChannel(message.guild, conf);
+    if (!ch) return;
+
+    // --- CORRECTION messageDelete ---
+    const authorTag = message.author.tag || 'Inconnu';
+    const authorId = message.author.id || 'ID inconnu';
+    const messageContent = message.content?.slice(0, 1024) ?? '(Contenu non disponible ou message trop ancien)';
+    
+    const e = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle('🗑️ Message supprimé')
+      .setDescription(`**Auteur :** ${authorTag} (<@${authorId}>)
+**Contenu :**
+\`\`\`
+${messageContent}
+\`\`\`
+**Dans le salon :** <#${message.channel.id}>`)
+      .setTimestamp(new Date());
+
+    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(() => {});
+  });
+
+  client.on('guildBanAdd', async (ban) => {
+    const conf = await GuildConfig.findOne({ guildId: ban.guild.id }).lean().catch(()=>null);
+    if (!conf?.logs?.enabled || !conf.logs.bans) return;
+    const ch = getLogChannel(ban.guild, conf);
+    if (!ch) return;
+
+    const e = new EmbedBuilder()
+      .setColor(0xfb923c)
+      .setTitle('🔨 Utilisateur banni')
+      .setDescription(`**Utilisateur :** ${ban.user.tag} (<@${ban.user.id}>)\n**Raison :** ${ban.reason || 'Non spécifiée'}`)
+      .setTimestamp(new Date());
+
+    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
+  });
+
+  client.on('guildMemberRemove', async (member) => {
+    const conf = await GuildConfig.findOne({ guildId: member.guild.id }).lean().catch(()=>null);
+    if (!conf?.logs?.enabled || !conf.logs.leaves) return;
+    const ch = getLogChannel(member.guild, conf);
+    if (!ch) return;
+    
+    const e = new EmbedBuilder()
+      .setColor(0xef4444)
+      .setTitle('➖ Départ')
+      .setDescription(`${member.user?.tag || 'Utilisateur inconnu'} (<@${member.id}>) a quitté le serveur.`)
+      .setTimestamp(new Date());
+
+    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
+  });
+
+}

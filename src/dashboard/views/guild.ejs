@@ -1,0 +1,578 @@
+<%
+  // ---------- Données préparées pour le template ----------
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const allChannels = [...channels.values()];
+  const textChannels = allChannels.filter(c => c.type === 0 || c.type === 5);
+  const categoryList = [...categories.values()];
+  const roleList = [...roles.values()]
+    .filter(r => r.name !== '@everyone' && !r.managed)
+    .sort((a, b) => (b.position ?? 0) - (a.position ?? 0));
+
+  const channelOptions = (selected, empty = '— Aucun —') =>
+    `<option value="">${esc(empty)}</option>` +
+    textChannels.map(c => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}># ${esc(c.name)}</option>`).join('');
+  const roleOptions = (selected, empty = '— Aucun —') =>
+    `<option value="">${esc(empty)}</option>` +
+    roleList.map(r => `<option value="${esc(r.id)}"${r.id === selected ? ' selected' : ''}>@ ${esc(r.name)}</option>`).join('');
+  const checked = (v) => (v ? 'checked' : '');
+
+  const w = conf?.welcome || {};
+  const gb = conf?.goodbye || {};
+  const xp = conf?.xp || {};
+  const lb = conf?.monthlyLeaderboard || {};
+  const tk = ticketConfig || {};
+  const tw = conf?.social?.twitch || {};
+  const logs = conf?.logs || {};
+  const am = conf?.automod || {};
+  const cmds = conf?.customCommands || [];
+  const recs = conf?.recurringMessages || [];
+  const panels = rrPanels || [];
+
+  const guildIcon = typeof guild.iconURL === 'function' ? guild.iconURL({ size: 128 }) : null;
+  const initials = (guild.name || '?').split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
+  const userAvatar = user?.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64` : 'https://cdn.discordapp.com/embed/avatars/0.png';
+
+  const modules = [
+    { tab: 'welcome',     icon: '👋', name: 'Accueil',            on: !!w.enabled,       desc: 'Message et image quand un membre arrive.' },
+    { tab: 'goodbye',     icon: '🚪', name: 'Départ',             on: !!gb.enabled,      desc: 'Message quand un membre quitte le serveur.' },
+    { tab: 'xp',          icon: '⭐', name: 'XP & niveaux',       on: !!xp.enabled,      desc: 'XP par message, cartes de rang, annonces.' },
+    { tab: 'leaderboard', icon: '🏆', name: 'Classement du mois', on: !!lb.enabled,      desc: 'Top du mois et rôles de récompense.' },
+    { tab: 'tickets',     icon: '📩', name: 'Tickets',            on: !!tk.enabled,      desc: 'Support privé avec transcription.' },
+    { tab: 'rr',          icon: '🧩', name: 'Rôles réaction',     on: panels.length > 0, desc: `${panels.length} panneau(x) configuré(s).` },
+    { tab: 'commands',    icon: '💬', name: 'Commandes perso',    on: cmds.length > 0,   desc: `${cmds.length} commande(s) avec le préfixe !` },
+    { tab: 'recurring',   icon: '🔁', name: 'Messages récurrents', on: recs.length > 0,  desc: `${recs.length} message(s) planifié(s).` },
+    { tab: 'social',      icon: '📣', name: 'Twitch',             on: !!tw.enabled,      desc: 'Annonce des lives.' },
+    { tab: 'logs',        icon: '📜', name: 'Logs',               on: !!logs.enabled,    desc: 'Arrivées, messages, sanctions.' },
+    { tab: 'automod',     icon: '🛡️', name: 'Auto-modération',    on: !!am.enabled,      desc: 'Mots interdits, liens, spam.' },
+  ];
+  const byTab = Object.fromEntries(modules.map(m => [m.tab, m]));
+  const navGroups = [
+    ['Membres', ['welcome', 'goodbye', 'xp', 'leaderboard']],
+    ['Outils', ['tickets', 'rr', 'commands', 'recurring']],
+    ['Intégrations', ['social']],
+    ['Modération', ['logs', 'automod']],
+  ];
+
+  const pageData = {
+    guildId: guild.id,
+    rrPanels: panels.map(p => ({ _id: String(p._id), title: p.title || '', description: p.description || '', channelId: p.channelId || '', mode: p.mode || 'multi', type: p.type || 'dropdown', entries: (p.entries || []).map(e => ({ emoji: e.emoji || '', label: e.label || '', roleId: e.roleId || '', style: e.style || 'Secondary' })) })),
+    roles: roleList.map(r => ({ id: r.id, name: r.name })),
+    sample: { mention: user?.global_name || user?.username || 'Utilisateur', username: user?.username || 'Utilisateur', displayName: user?.global_name || user?.username || 'Utilisateur' },
+    server: { name: guild.name || '', memberCount: guild.memberCount || 0 },
+  };
+%>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <%- include('partials/head', { title: `${guild.name} — Dashboard` }) %>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <a class="back" href="/dashboard">← Mes serveurs</a>
+    <div class="guild-head">
+      <% if (guildIcon) { %><img class="server-icon" src="<%= guildIcon %>" alt="" /><% } else { %><span class="server-icon"><%= initials %></span><% } %>
+      <div style="min-width:0">
+        <strong title="<%= guild.name %>"><%= guild.name %></strong>
+        <span><%= (guild.memberCount || 0).toLocaleString('fr-FR') %> membres</span>
+      </div>
+    </div>
+
+    <button class="nav-item" data-tab="overview"><span class="nav-icon">🏠</span>Vue d'ensemble</button>
+    <% navGroups.forEach(([label, tabs]) => { %>
+      <div class="nav-group"><%= label %></div>
+      <% tabs.forEach(t => { const m = byTab[t]; %>
+        <button class="nav-item" data-tab="<%= t %>"><span class="nav-icon"><%= m.icon %></span><%= m.name %><span class="dot <%= m.on ? 'on' : '' %>"></span></button>
+      <% }) %>
+    <% }) %>
+
+    <div class="sidebar-foot">
+      <img class="avatar" src="<%= userAvatar %>" alt="" />
+      <span class="grow"><%= user?.global_name || user?.username %></span>
+      <a class="btn btn-ghost btn-sm" href="/logout" title="Se déconnecter">↪</a>
+    </div>
+  </aside>
+
+  <!-- ================= CONTENU ================= -->
+  <main class="main"><div class="main-inner">
+
+  <!-- ===== Vue d'ensemble ===== -->
+  <section class="panel" id="panel-overview">
+    <div class="panel-head">
+      <div>
+        <h1><%= guild.name %></h1>
+        <p>Choisis un module pour le configurer. Le point vert indique qu'il est actif.</p>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Membres</span><strong><%= (guild.memberCount || 0).toLocaleString('fr-FR') %></strong></div>
+      <div class="stat"><span>Salons textuels</span><strong><%= textChannels.length %></strong></div>
+      <div class="stat"><span>Rôles</span><strong><%= roleList.length %></strong></div>
+      <div class="stat"><span>Modules actifs</span><strong><%= modules.filter(m => m.on).length %> / <%= modules.length %></strong></div>
+    </div>
+    <div class="overview-grid">
+      <% modules.forEach(m => { %>
+        <button class="module-tile" data-goto="<%= m.tab %>">
+          <span class="row1"><span class="emoji"><%= m.icon %></span><span class="chip <%= m.on ? 'on' : '' %>"><%= m.on ? 'Actif' : 'Inactif' %></span></span>
+          <strong><%= m.name %></strong>
+          <p><%= m.desc %></p>
+        </button>
+      <% }) %>
+    </div>
+  </section>
+
+  <!-- ===== Accueil ===== -->
+  <section class="panel" id="panel-welcome">
+    <div class="panel-head">
+      <div><h1>👋 Message d'accueil</h1><p>Envoyé dans le salon choisi quand quelqu'un rejoint le serveur, avec une image générée automatiquement.</p></div>
+      <span class="chip <%= w.enabled ? 'on' : '' %>"><%= w.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <div class="cards-2">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/save">
+        <input type="hidden" name="welcome_uploadedImagePath" value="<%= w.uploadedImagePath || '' %>" />
+        <div class="card-head"><div><h2>Réglages</h2></div></div>
+        <div class="card-body stack">
+          <label class="toggle-row"><span class="toggle-text"><strong>Activer le message d'accueil</strong><span>Désactivé, rien n'est envoyé.</span></span><input type="checkbox" class="switch" name="welcome_enabled" <%= checked(w.enabled) %> /></label>
+          <div class="form-grid">
+            <div class="field"><label>Salon</label><select name="welcome_channelId"><%- channelOptions(w.channelId) %></select></div>
+            <div class="field"><label>Couleur de l'embed</label><div class="inline"><input type="color" name="welcome_color" id="welcome_color" value="<%= w.color || '#5865F2' %>" /><span class="hint">Barre de couleur à gauche du message</span></div></div>
+          </div>
+          <div class="field"><label>Titre</label><input type="text" name="welcome_title" id="welcome_title" maxlength="256" placeholder="Ho ! Un nouveau membre !" value="<%= w.title || '' %>" /></div>
+          <div class="field">
+            <label>Message</label>
+            <textarea name="welcome_message" id="welcome_message" placeholder="Bienvenue {member} sur {server.name} !"><%= w.message || '' %></textarea>
+            <span class="hint">Variables : <code>{member}</code> <code>{member.username}</code> <code>{member.displayName}</code> <code>{server.name}</code> <code>{membercount}</code></span>
+          </div>
+
+          <div class="divider"></div>
+          <h3>Image</h3>
+          <div class="form-grid">
+            <div class="field">
+              <label>Fond de l'image</label>
+              <select name="welcome_imageSourceType" id="welcome_imageSourceType">
+                <option value="none" <%= (w.imageSourceType || 'none') === 'none' ? 'selected' : '' %>>Dégradé par défaut</option>
+                <option value="url" <%= w.imageSourceType === 'url' ? 'selected' : '' %>>Image depuis une URL</option>
+                <option value="upload" <%= w.imageSourceType === 'upload' ? 'selected' : '' %>>Image envoyée (voir à droite)</option>
+              </select>
+            </div>
+            <div class="field" id="welcome_url_wrap" <%- w.imageSourceType === 'url' ? '' : 'hidden' %>><label>URL de l'image</label><input type="url" name="welcome_imageUrl" placeholder="https://…" value="<%= w.imageUrl || '' %>" /></div>
+          </div>
+          <div class="form-grid">
+            <label class="toggle-row"><span class="toggle-text"><strong>Avatar du membre</strong><span>Affiché en rond à gauche</span></span><input type="checkbox" class="switch" name="welcome_showAvatarOnImage" <%= checked(w.showAvatarOnImage !== false) %> /></label>
+            <label class="toggle-row"><span class="toggle-text"><strong>Texte « Bienvenue »</strong><span>Avec le nom du serveur</span></span><input type="checkbox" class="switch" name="welcome_overlayWelcomeText" <%= checked(w.overlayWelcomeText !== false) %> /></label>
+            <label class="toggle-row"><span class="toggle-text"><strong>Ombre du texte</strong><span>Meilleure lisibilité</span></span><input type="checkbox" class="switch" name="welcome_overlayTextShadow" <%= checked(w.overlayTextShadow !== false) %> /></label>
+            <div class="field"><label>Couleur du texte</label><input type="color" name="welcome_overlayTextColor" value="<%= w.overlayTextColor || '#FFFFFF' %>" /></div>
+          </div>
+
+          <div class="divider"></div>
+          <h3>Mentions & nettoyage</h3>
+          <div class="form-grid">
+            <label class="toggle-row"><span class="toggle-text"><strong>Mentionner le membre</strong><span>Il reçoit une notification</span></span><input type="checkbox" class="switch" name="welcome_pingUser" <%= checked(w.pingUser !== false) %> /></label>
+            <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong><span>À utiliser avec modération</span></span><input type="checkbox" class="switch" name="welcome_pingEveryone" <%= checked(w.pingEveryone) %> /></label>
+          </div>
+          <div class="field" style="max-width:260px"><label>Supprimer le message après (minutes)</label><input type="number" min="0" step="1" name="welcome_deleteAfterMinutes" value="<%= w.deleteAfterMinutes ?? 0 %>" /><span class="hint">0 = jamais</span></div>
+
+          <div class="actions">
+            <a class="btn btn-ghost" href="/dashboard/<%= guild.id %>/welcome/test" title="Envoie le message d'accueil avec ton compte">Envoyer un test</a>
+            <button class="btn" type="submit">Enregistrer</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="stack">
+        <div class="card">
+          <div class="card-head"><div><h2>Aperçu</h2><p>Le texte se met à jour en direct. L'image reflète les réglages enregistrés.</p></div></div>
+          <div class="card-body">
+            <div class="discord">
+              <div class="discord-msg">
+                <img class="avatar" src="<%= bot?.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png' %>" alt="" />
+                <div style="min-width:0;flex:1">
+                  <div class="discord-author"><%= bot?.username || 'Bot' %> <span class="bot-tag">BOT</span> <time>Aujourd'hui</time></div>
+                  <div class="discord-content" id="pv-ping"></div>
+                  <div class="discord-embed" id="pv-embed" style="border-left-color:<%= w.color || '#5865F2' %>">
+                    <div class="e-title" id="pv-title"><%= previewTitle || w.title || 'Ho ! Un nouveau membre !' %></div>
+                    <div class="e-desc" id="pv-desc"><%= previewMessage || w.message || 'Bienvenue {member} sur {server.name} !' %></div>
+                    <img id="pv-image" alt="" src="/dashboard/<%= guild.id %>/welcome/preview.png?ts=<%= Date.now() %>" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <form class="card" method="post" action="/dashboard/<%= guild.id %>/welcome/upload" enctype="multipart/form-data">
+          <div class="card-head"><div><h2>Image de fond</h2><p>PNG, JPG, GIF ou WebP · 10 Mo max · idéalement 1200×500</p></div></div>
+          <div class="card-body stack-sm">
+            <input type="file" name="welcome_upload" accept=".png,.jpg,.jpeg,.gif,.webp" required />
+            <% if (w.uploadedImagePath) { %><span class="hint">Image actuelle : <code><%= w.uploadedImagePath.split('/').pop() %></code></span><% } %>
+            <div class="actions"><button class="btn btn-ghost" type="submit">Envoyer l'image</button></div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Départ ===== -->
+  <section class="panel" id="panel-goodbye">
+    <div class="panel-head">
+      <div><h1>🚪 Message de départ</h1><p>Envoyé quand un membre quitte (ou est expulsé du) serveur.</p></div>
+      <span class="chip <%= gb.enabled ? 'on' : '' %>"><%= gb.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <form class="card" method="post" action="/dashboard/<%= guild.id %>/save" style="max-width:760px">
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer le message de départ</strong><span>Désactivé, rien n'est envoyé.</span></span><input type="checkbox" class="switch" name="goodbye_enabled" <%= checked(gb.enabled) %> /></label>
+        <div class="form-grid">
+          <div class="field"><label>Salon</label><select name="goodbye_channelId"><%- channelOptions(gb.channelId) %></select></div>
+          <div class="field"><label>Couleur</label><input type="color" name="goodbye_color" value="<%= gb.color || '#E74C3C' %>" /></div>
+        </div>
+        <div class="field"><label>Titre</label><input type="text" name="goodbye_title" maxlength="256" placeholder="À bientôt" value="<%= gb.title || '' %>" /></div>
+        <div class="field"><label>Message</label><textarea name="goodbye_message" placeholder="{member} a quitté {server.name}."><%= gb.message || '' %></textarea><span class="hint">Mêmes variables que le message d'accueil.</span></div>
+        <div class="actions"><button class="btn" type="submit">Enregistrer</button></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===== XP ===== -->
+  <section class="panel" id="panel-xp">
+    <div class="panel-head">
+      <div><h1>⭐ XP & niveaux</h1><p>Chaque message rapporte 3 XP (une fois par minute maximum). Les membres voient leur carte avec <code>/rank</code>.</p></div>
+      <span class="chip <%= xp.enabled ? 'on' : '' %>"><%= xp.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <div class="cards-2">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/xp/save">
+        <div class="card-head"><div><h2>Réglages</h2></div></div>
+        <div class="card-body stack">
+          <label class="toggle-row"><span class="toggle-text"><strong>Activer le système d'XP</strong><span>Compte aussi les messages pour le classement du mois</span></span><input type="hidden" name="xp_enabled" value="off" /><input type="checkbox" class="switch" name="xp_enabled" value="on" <%= checked(xp.enabled) %> /></label>
+          <div class="field"><label>Salon des annonces de niveau</label><select name="xp_messageChannelId"><%- channelOptions(xp.messageChannelId, '— Pas d\'annonce —') %></select><span class="hint">Laisse vide pour ne pas annoncer les passages de niveau.</span></div>
+          <div class="field"><label>Message de passage de niveau</label><textarea name="xp_levelUpMessage" placeholder="Félicitations, {user.mention} ! Tu es maintenant au niveau **{level}** ! 🎉"><%= xp.levelUpMessage || '' %></textarea><span class="hint">Variables : <code>{user.mention}</code> <code>{user.username}</code> <code>{level}</code></span></div>
+          <div class="actions"><button class="btn" type="submit">Enregistrer</button></div>
+        </div>
+      </form>
+
+      <div class="card">
+        <div class="card-head"><div><h2>Fond des cartes de rang</h2><p>Utilisé par <code>/rank</code> et les annonces. 800×200 recommandé.</p></div></div>
+        <div class="card-body stack-sm">
+          <% if (xp.cardBackgroundUrl) { %>
+            <img src="<%= xp.cardBackgroundUrl %>" alt="" style="width:100%;aspect-ratio:4/1;object-fit:cover;border-radius:8px;border:1px solid var(--border)" />
+          <% } else { %>
+            <div class="empty" style="padding:18px">Fond uni par défaut</div>
+          <% } %>
+          <form method="post" action="/dashboard/<%= guild.id %>/xp/card-background" enctype="multipart/form-data" class="stack-sm">
+            <input type="file" name="cardBackground" accept=".png,.jpg,.jpeg,.gif,.webp" required />
+            <div class="actions">
+              <% if (xp.cardBackgroundUrl) { %><button class="btn btn-danger" type="button" id="xp-bg-clear">Retirer</button><% } %>
+              <button class="btn btn-ghost" type="submit">Envoyer l'image</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Classement du mois ===== -->
+  <section class="panel" id="panel-leaderboard">
+    <div class="panel-head">
+      <div><h1>🏆 Classement du mois</h1><p>Le 1er de chaque mois à minuit, le bot publie le top 10 des membres les plus actifs et distribue les rôles de récompense.</p></div>
+      <span class="chip <%= lb.enabled ? 'on' : '' %>"><%= lb.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <% if (!xp.enabled) { %><div class="callout warn" style="margin-bottom:16px">⚠️ Le système d'XP est désactivé : les messages ne sont pas comptés, le classement sera vide.</div><% } %>
+    <form class="card" method="post" action="/dashboard/<%= guild.id %>/monthly-leaderboard/save" style="max-width:860px">
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer le classement mensuel</strong></span><input type="checkbox" class="switch" name="monthlyLeaderboard_enabled" <%= checked(lb.enabled) %> /></label>
+        <div class="field"><label>Salon de publication</label><select name="monthlyLeaderboard_channelId"><%- channelOptions(lb.channelId) %></select></div>
+        <div class="field"><label>Message accompagnant le classement</label><textarea name="monthlyLeaderboard_monthlyMessage" placeholder="Félicitations aux membres les plus actifs du mois ! 🎉"><%= lb.monthlyMessage || '' %></textarea></div>
+        <label class="toggle-row"><span class="toggle-text"><strong>Remettre les compteurs à zéro</strong><span>Le nombre de messages du mois repart de 0 après la publication (l'XP n'est pas touchée)</span></span><input type="checkbox" class="switch" name="monthlyLeaderboard_resetXPOnEnd" <%= checked(lb.resetXPOnEnd) %> /></label>
+
+        <div class="divider"></div>
+        <h3>Rôles de récompense</h3>
+        <p class="hint">L'ancien rôle est retiré à tout le monde, puis donné au nouveau top. Le rôle du bot doit être placé au-dessus de ces rôles.</p>
+        <div class="form-grid-3">
+          <div class="field"><label>Places 1 à 3</label><select name="monthlyLeaderboard_topRoleIds_1_3"><%- roleOptions(lb.topRoleIds?.['1-3']) %></select></div>
+          <div class="field"><label>Places 4 à 6</label><select name="monthlyLeaderboard_topRoleIds_4_6"><%- roleOptions(lb.topRoleIds?.['4-6']) %></select></div>
+          <div class="field"><label>Places 7 et 8</label><select name="monthlyLeaderboard_topRoleIds_7_8"><%- roleOptions(lb.topRoleIds?.['7-8']) %></select></div>
+        </div>
+        <div class="field"><label>Rôles exclus du classement (IDs séparés par des virgules)</label><input type="text" name="monthlyLeaderboard_excludedRoleIds" placeholder="123456789012345678, 987654321098765432" value="<%= (lb.excludedRoleIds || []).join(', ') %>" /><span class="hint">Pratique pour exclure le staff ou les bots. Clic droit sur un rôle → « Copier l'identifiant » (mode développeur).</span></div>
+        <div class="actions">
+          <button class="btn btn-ghost" type="submit" form="lb-test-form">Envoyer un test</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+    <form id="lb-test-form" method="post" action="/dashboard/<%= guild.id %>/leaderboard/test"></form>
+  </section>
+
+  <!-- ===== Tickets ===== -->
+  <section class="panel" id="panel-tickets">
+    <div class="panel-head">
+      <div><h1>📩 Tickets</h1><p>Les membres ouvrent un salon privé avec le staff en cliquant sur un bouton. À la fermeture, une transcription HTML est envoyée dans le salon de logs.</p></div>
+      <span class="chip <%= tk.enabled ? 'on' : '' %>"><%= tk.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <form class="card" id="ticketForm" method="post" action="/dashboard/<%= guild.id %>/tickets/save" style="max-width:860px">
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer les tickets</strong><span>Désactivé, le bouton du panneau répond que le système est fermé</span></span><input type="checkbox" class="switch" id="ticket-enabled" name="enabled" value="true" <%= checked(tk.enabled) %> /></label>
+        <div class="form-grid">
+          <div class="field"><label>Salon du panneau</label><select id="ticket-channelId" name="channelId"><%- channelOptions(tk.channelId) %></select></div>
+          <div class="field"><label>Catégorie des tickets</label>
+            <select id="ticket-categoryId" name="categoryId">
+              <option value="">— Aucune —</option>
+              <% categoryList.forEach(c => { %><option value="<%= c.id %>" <%= tk.categoryId === c.id ? 'selected' : '' %>><%= c.name %></option><% }) %>
+            </select>
+          </div>
+          <div class="field"><label>Rôle du support</label><select id="ticket-staffRoleId" name="supportRoleId"><%- roleOptions(tk.supportRoleId) %></select><span class="hint">Voit tous les tickets et peut les fermer.</span></div>
+          <div class="field"><label>Salon des logs de tickets</label><select id="ticket-logsChannelId" name="logChannelId"><%- channelOptions(tk.logChannelId) %></select></div>
+        </div>
+        <div class="divider"></div>
+        <h3>Panneau d'ouverture</h3>
+        <div class="field"><label>Titre</label><input type="text" id="ticket-panel-title" name="panelTitle" maxlength="256" placeholder="Ouvrir un ticket" value="<%= tk.panelMessage?.title || '' %>" /></div>
+        <div class="field"><label>Description</label><textarea id="ticket-panel-description" name="panelDescription" placeholder="Cliquez sur le bouton ci-dessous pour ouvrir un ticket."><%= tk.panelMessage?.description || '' %></textarea></div>
+        <div class="divider"></div>
+        <h3>Message dans le ticket</h3>
+        <div class="field"><label>Titre</label><input type="text" id="ticket-welcome-title" name="welcomeTitle" maxlength="256" placeholder="Ticket #12" value="<%= tk.welcomeMessage?.title || '' %>" /></div>
+        <div class="field"><label>Description</label><textarea id="ticket-welcome-description" name="welcomeDescription" placeholder="Décrivez votre problème, un membre du staff va vous répondre."><%= tk.welcomeMessage?.description || '' %></textarea></div>
+        <div class="actions">
+          <button class="btn btn-ghost" type="button" id="ticket-post">Publier le panneau</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===== Rôles réaction ===== -->
+  <section class="panel" id="panel-rr">
+    <div class="panel-head">
+      <div><h1>🧩 Rôles réaction</h1><p>Un message avec des boutons ou un menu pour que les membres choisissent leurs rôles.</p></div>
+    </div>
+    <form class="card" method="post" action="/dashboard/<%= guild.id %>/rr/save" id="rrForm">
+      <input type="hidden" name="rr_id" id="rr_id" />
+      <div class="card-head">
+        <div class="field" style="min-width:260px">
+          <label>Panneau</label>
+          <select id="rr_selectPanel">
+            <option value="">＋ Nouveau panneau</option>
+            <% panels.forEach(p => { %><option value="<%= p._id %>"><%= p.title || ('Panneau ' + String(p._id).slice(-6)) %><%= p.messageId ? ' · publié' : '' %></option><% }) %>
+          </select>
+        </div>
+      </div>
+      <div class="card-body stack">
+        <div class="form-grid-3">
+          <div class="field"><label>Salon de publication</label><select name="channelId"><%- channelOptions('') %></select></div>
+          <div class="field"><label>Affichage</label><select name="type"><option value="dropdown">Menu déroulant</option><option value="buttons">Boutons</option></select></div>
+          <div class="field"><label>Mode</label><select name="mode"><option value="multi">Plusieurs rôles possibles</option><option value="single">Un seul rôle à la fois</option></select></div>
+        </div>
+        <div class="field"><label>Titre</label><input type="text" name="title" maxlength="256" placeholder="Choisis tes rôles" /></div>
+        <div class="field"><label>Description</label><textarea name="description" placeholder="Clique sur un bouton pour obtenir ou retirer un rôle."></textarea></div>
+        <div class="divider"></div>
+        <div class="inline" style="justify-content:space-between"><h3>Rôles proposés</h3><button class="btn btn-ghost btn-sm" type="button" id="rr_add">＋ Ajouter un rôle</button></div>
+        <div id="rr_entries" class="list"></div>
+        <div class="actions">
+          <button class="btn btn-danger" type="submit" form="rr-delete-form" id="rr_delete_btn" data-confirm="Supprimer ce panneau (et son message sur Discord) ?">Supprimer</button>
+          <button class="btn btn-ghost" type="submit" form="rr-post-form" id="rr_post_btn">Publier sur Discord</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+        <p class="hint" style="text-align:right">Enregistre d'abord, puis publie. Republier remplace l'ancien message.</p>
+      </div>
+    </form>
+    <form id="rr-post-form" method="post" action="/dashboard/<%= guild.id %>/rr/post"><input type="hidden" name="rr_id" id="rr_post_id" /></form>
+    <form id="rr-delete-form" method="post" action="/dashboard/<%= guild.id %>/rr/delete"><input type="hidden" name="rr_id" id="rr_delete_id" /></form>
+  </section>
+
+  <!-- ===== Commandes perso ===== -->
+  <section class="panel" id="panel-commands">
+    <div class="panel-head">
+      <div><h1>💬 Commandes personnalisées</h1><p>Le bot répond un texte fixe quand quelqu'un tape <code>!nom</code>. Les mentions @everyone/@here sont bloquées.</p></div>
+    </div>
+    <div class="cards-2">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/commands">
+        <div class="card-head"><div><h2>Ajouter ou modifier</h2><p>Un nom déjà existant remplace l'ancienne réponse.</p></div></div>
+        <div class="card-body stack">
+          <div class="field"><label>Nom</label><div class="inline" style="flex-wrap:nowrap"><span class="tag">!</span><input type="text" name="name" maxlength="32" pattern="[^\s]+" required placeholder="regles" /></div></div>
+          <div class="field"><label>Réponse</label><textarea name="response" maxlength="2000" required placeholder="Les règles sont dans #règlement 📜"></textarea></div>
+          <div class="actions"><button class="btn" type="submit">Enregistrer</button></div>
+        </div>
+      </form>
+      <div class="card">
+        <div class="card-head"><div><h2>Commandes existantes</h2></div><span class="chip plain"><%= cmds.length %></span></div>
+        <div class="card-body">
+          <% if (!cmds.length) { %><div class="empty">Aucune commande pour l'instant.</div><% } else { %>
+            <div class="list">
+              <% cmds.forEach(c => { %>
+                <div class="list-row">
+                  <div class="list-main"><span><span class="tag">!<%= c.name %></span></span><p><%= c.response %></p></div>
+                  <form method="post" action="/dashboard/<%= guild.id %>/commands/delete" data-confirm="Supprimer la commande !<%= c.name %> ?">
+                    <input type="hidden" name="name" value="<%= c.name %>" />
+                    <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+                  </form>
+                </div>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Messages récurrents ===== -->
+  <section class="panel" id="panel-recurring">
+    <div class="panel-head">
+      <div><h1>🔁 Messages récurrents</h1><p>Envoyés automatiquement selon un horaire (heure de Paris). Actifs dès l'enregistrement.</p></div>
+    </div>
+    <div class="cards-2">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/recurring">
+        <div class="card-head"><div><h2>Nouveau message</h2></div></div>
+        <div class="card-body stack">
+          <div class="field"><label>Salon</label><select name="channelId" required><%- channelOptions('', '— Choisir —') %></select></div>
+          <div class="field">
+            <label>Horaire (format cron)</label>
+            <input type="text" name="cron" id="cron-input" required placeholder="0 9 * * *" />
+            <div class="inline">
+              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 9 * * *">Tous les jours 9h</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 18 * * 5">Vendredi 18h</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 * * * *">Toutes les heures</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-cron="0 12 1 * *">Le 1er du mois</button>
+            </div>
+            <span class="hint">minute · heure · jour du mois · mois · jour de semaine (0 = dimanche)</span>
+          </div>
+          <div class="field"><label>Message</label><textarea name="content" maxlength="2000" required placeholder="N'oubliez pas de voter pour le serveur ! 🗳️"></textarea></div>
+          <div class="actions"><button class="btn" type="submit">Ajouter</button></div>
+        </div>
+      </form>
+      <div class="card">
+        <div class="card-head"><div><h2>Planifiés</h2></div><span class="chip plain"><%= recs.length %></span></div>
+        <div class="card-body">
+          <% if (!recs.length) { %><div class="empty">Aucun message planifié.</div><% } else { %>
+            <div class="list">
+              <% recs.forEach(r => { const ch = allChannels.find(c => c.id === r.channelId); %>
+                <div class="list-row">
+                  <div class="list-main">
+                    <span class="inline"><span class="tag"># <%= ch?.name || r.channelId %></span><span class="tag"><%= r.cron %></span></span>
+                    <p><%= r.content %></p>
+                  </div>
+                  <form method="post" action="/dashboard/<%= guild.id %>/recurring/delete" data-confirm="Supprimer ce message planifié ?">
+                    <input type="hidden" name="id" value="<%= r.id %>" />
+                    <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+                  </form>
+                </div>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Twitch ===== -->
+  <section class="panel" id="panel-social">
+    <div class="panel-head">
+      <div><h1>📣 Notifications Twitch</h1><p>Le bot vérifie toutes les 2 minutes et annonce chaque nouveau live (5 annonces max par streamer et par jour).</p></div>
+      <span class="chip <%= tw.enabled ? 'on' : '' %>"><%= tw.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <form class="card" id="socialForm" method="post" action="/dashboard/<%= guild.id %>/social/save" style="max-width:760px">
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer les annonces Twitch</strong></span><input type="hidden" name="twitch_enabled" value="off" /><input type="checkbox" class="switch" id="twitch-enabled" name="twitch_enabled" value="on" <%= checked(tw.enabled) %> /></label>
+        <div class="field"><label>Streamers suivis</label><input type="text" id="twitch-usernames" name="twitch_usernames" placeholder="streamer1, streamer2" value="<%= (tw.usernames || []).join(', ') %>" /><span class="hint">Noms Twitch séparés par des virgules.</span></div>
+        <div class="form-grid">
+          <div class="field"><label>Salon d'annonce</label><select id="twitch-channelId" name="twitch_channelId"><%- channelOptions(tw.channelId) %></select></div>
+          <div class="field"><label>Couleur de l'embed</label><input type="color" id="twitch-embedColor" name="twitch_embedColor" value="<%= tw.embedColor || '#9146FF' %>" /></div>
+        </div>
+        <div class="field"><label>Message au-dessus de l'annonce</label><textarea id="twitch-message" name="twitch_message" placeholder="Le live a commencé, venez dire bonjour ! 🔴"><%= tw.message || '' %></textarea></div>
+        <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="hidden" name="twitch_pingEveryone" value="off" /><input type="checkbox" class="switch" id="twitch-pingEveryone" name="twitch_pingEveryone" value="on" <%= checked(tw.pingEveryone) %> /></label>
+        <div class="actions">
+          <button class="btn btn-ghost" type="submit" form="social-test-form">Envoyer un test</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+    <form id="social-test-form" method="post" action="/dashboard/<%= guild.id %>/social/test"></form>
+  </section>
+
+  <!-- ===== Logs ===== -->
+  <section class="panel" id="panel-logs">
+    <div class="panel-head">
+      <div><h1>📜 Logs</h1><p>Garde une trace de ce qui se passe sur le serveur. Teste avec <code>/logs-test</code>.</p></div>
+      <span class="chip <%= logs.enabled ? 'on' : '' %>"><%= logs.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <form class="card" id="logs-form" method="post" action="/dashboard/<%= guild.id %>/logs/save" style="max-width:760px">
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer les logs</strong></span><input type="checkbox" class="switch" name="logs_enabled" value="on" <%= checked(logs.enabled) %> /></label>
+        <div class="field"><label>Salon des logs</label><select name="logs_channelId"><%- channelOptions(logs.channelId) %></select><span class="hint">Idéalement un salon privé réservé au staff.</span></div>
+        <div class="form-grid">
+          <label class="toggle-row"><span class="toggle-text"><strong>Arrivées / départs</strong></span><input type="checkbox" class="switch" name="logs_joinLeave" value="on" <%= checked(logs.joins) %> /></label>
+          <label class="toggle-row"><span class="toggle-text"><strong>Messages supprimés</strong></span><input type="checkbox" class="switch" name="logs_msgDelete" value="on" <%= checked(logs.messageDeleted) %> /></label>
+          <label class="toggle-row"><span class="toggle-text"><strong>Messages modifiés</strong></span><input type="checkbox" class="switch" name="logs_msgEdit" value="on" <%= checked(logs.messageEdited) %> /></label>
+          <label class="toggle-row"><span class="toggle-text"><strong>Bannissements</strong></span><input type="checkbox" class="switch" name="logs_moderation" value="on" <%= checked(logs.bans) %> /></label>
+        </div>
+        <div class="actions"><button class="btn" type="submit">Enregistrer</button></div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ===== Auto-modération ===== -->
+  <section class="panel" id="panel-automod">
+    <div class="panel-head">
+      <div><h1>🛡️ Auto-modération</h1><p>Les membres ayant la permission « Gérer les messages » ne sont jamais filtrés.</p></div>
+      <span class="chip <%= am.enabled ? 'on' : '' %>"><%= am.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <form class="stack" method="post" action="/dashboard/<%= guild.id %>/automod/save" style="max-width:860px">
+      <div class="card"><div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Activer l'auto-modération</strong><span>Interrupteur général des règles ci-dessous</span></span><input type="checkbox" class="switch" name="automod_enabled" value="on" <%= checked(am.enabled) %> /></label>
+        <div class="field"><label>Salon où signaler les actions</label><select name="automod_modLogChannelId"><%- channelOptions(am.modLogChannelId) %></select></div>
+        <div class="form-grid">
+          <div class="field"><label>Salons ignorés (IDs)</label><input type="text" name="automod_ignoredChannels" placeholder="123…, 456…" value="<%= (am.ignoredChannels || []).join(', ') %>" /></div>
+          <div class="field"><label>Rôles ignorés (IDs)</label><input type="text" name="automod_ignoredRoles" placeholder="123…, 456…" value="<%= (am.ignoredRoles || []).join(', ') %>" /></div>
+        </div>
+      </div></div>
+
+      <div class="card">
+        <div class="card-head"><div><h2>🤬 Mots interdits</h2></div><input type="checkbox" class="switch" name="badWords_enabled" value="on" <%= checked(am.badWords?.enabled) %> aria-label="Activer les mots interdits" /></div>
+        <div class="card-body stack">
+          <div class="field"><label>Liste (séparée par des virgules)</label><textarea name="badWords_list" placeholder="mot1, mot2, expression interdite"><%= (am.badWords?.list || []).join(', ') %></textarea></div>
+          <div class="field" style="max-width:320px"><label>Action</label>
+            <select name="badWords_action">
+              <% [['delete', 'Supprimer'], ['delete_warn', 'Supprimer + avertir'], ['mute', 'Supprimer + timeout'], ['kick', 'Supprimer + expulser']].forEach(([v, l]) => { %>
+                <option value="<%= v %>" <%= (am.badWords?.action || 'delete_warn') === v ? 'selected' : '' %>><%= l %></option>
+              <% }) %>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h2>🔗 Anti-liens</h2></div><input type="checkbox" class="switch" name="antiLinks_enabled" value="on" <%= checked(am.antiLinks?.enabled) %> aria-label="Activer l'anti-liens" /></div>
+        <div class="card-body stack">
+          <label class="toggle-row"><span class="toggle-text"><strong>Autoriser les invitations Discord</strong></span><input type="checkbox" class="switch" name="antiLinks_allowInvites" value="on" <%= checked(am.antiLinks?.allowInvites) %> /></label>
+          <div class="field"><label>Sites autorisés (un par ligne)</label><textarea name="antiLinks_allowedDomains" placeholder="youtube.com&#10;twitch.tv"><%= (am.antiLinks?.allowedDomains || []).join('\n') %></textarea><span class="hint">Les sous-domaines sont inclus (youtube.com autorise music.youtube.com).</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h2>🚫 Anti-spam</h2></div><input type="checkbox" class="switch" name="antiSpam_enabled" value="on" <%= checked(am.antiSpam?.enabled) %> aria-label="Activer l'anti-spam" /></div>
+        <div class="card-body stack">
+          <div class="form-grid-3">
+            <div class="field"><label>Messages max</label><input type="number" min="2" max="50" name="antiSpam_limit" value="<%= am.antiSpam?.limit ?? 5 %>" /></div>
+            <div class="field"><label>En (secondes)</label><input type="number" min="1" max="120" name="antiSpam_timeframe" value="<%= am.antiSpam?.timeframe ?? 7 %>" /></div>
+            <div class="field"><label>Action</label>
+              <select name="antiSpam_action">
+                <% [['none', 'Aucune'], ['warn', 'Avertir'], ['mute', 'Timeout'], ['kick', 'Expulser']].forEach(([v, l]) => { %>
+                  <option value="<%= v %>" <%= (am.antiSpam?.action || 'warn') === v ? 'selected' : '' %>><%= l %></option>
+                <% }) %>
+              </select>
+            </div>
+          </div>
+          <div class="field" style="max-width:320px"><label>Durée du timeout (secondes)</label><input type="number" min="10" name="antiSpam_punishmentTime" value="<%= am.antiSpam?.punishmentTime ?? 600 %>" /><span class="hint">Utilisée aussi par l'action « timeout » des mots interdits.</span></div>
+        </div>
+      </div>
+
+      <div class="actions"><button class="btn btn-lg" type="submit">Enregistrer l'auto-modération</button></div>
+    </form>
+  </section>
+
+  </div></main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script id="page-data" type="application/json"><%- JSON.stringify(pageData).replace(/</g, '\\u003c') %></script>
+<script src="/static/guild.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+// ... (dans src/commands/core.js, à l'intérieur de la fonction principale)
+
+      case 'classement': {
+        // 🏅 CLASSEMENT TOTAL PAR MESSAGES - AVEC RESET MENSUEL MANUEL
+        await interaction.deferReply();
+        
+        // 1. Récupérer les 10 meilleurs utilisateurs triés par messages TOTAux
+        const topUsers = await UserXP.find({ guildId: interaction.guildId })
+            // ⬅️ CORRECTION : Trier par 'totalMessages'
+            .sort({ totalMessages: -1 }) 
+            .limit(10)
+            .lean();
+
+        if (topUsers.length === 0) {
+            return interaction.editReply({ content: 'Aucune donnée de message trouvée pour ce serveur.', ephemeral: true });
+        }
+
+        // 🖼️ Utilisation de la fonction Canvas
+        const imageBuffer = await generateLeaderboardCard(
+            interaction.client, 
+            topUsers, 
+            // ⬅️ CORRECTION : Changer le titre pour refléter le classement total
+            'Classement Global (Messages)', 
+            // ⬅️ CORRECTION : Indiquer au générateur de montrer les messages TOTAUX
+            'totalMessages' 
+        ); 
+        const file = new AttachmentBuilder(imageBuffer, { name: 'leaderboard-total-messages.png' });
+
+        // 2. Réinitialisation des messages mensuels (le cœur de la demande)
+        // Ceci remet à zéro le champ 'monthlyMessages' pour TOUS les utilisateurs de la guilde.
+        await UserXP.updateMany(
+            { guildId: interaction.guildId }, 
+            { $set: { monthlyMessages: 0 } }
+        );
+        
+        // 3. Réponse à l'utilisateur
+        await interaction.editReply({ 
+            content: "🏆 Voici le classement global par nombre de messages. **Le compteur mensuel a été réinitialisé !**",
+            files: [file] 
+        });
+        break;
+      }
+// ...
