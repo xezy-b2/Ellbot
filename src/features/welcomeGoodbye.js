@@ -34,6 +34,14 @@ function hexToInt(hex, fallback) {
 
 const safe = s => (typeof s === 'string' ? s : '') || '';
 
+// Discord ne notifie jamais une mention placée dans un embed : on recopie les rôles
+// mentionnés dans le titre/message (<@&ID>) dans le texte au-dessus de l'embed.
+function roleMentionsIn(...texts) {
+  const ids = new Set();
+  for (const t of texts) for (const m of safe(t).matchAll(/<@&(\d{17,20})>/g)) ids.add(m[1]);
+  return [...ids].map(id => `<@&${id}>`);
+}
+
 // ---------------- Template helper ----------------
 /**
  * Replace placeholders in templates.
@@ -135,6 +143,7 @@ export async function sendWelcome(guild, member) {
     if (s.pingEveryone) pings.push('@everyone');
     // default behavior: if pingUser is omitted, keep existing behavior (true by default in config)
     if (s.pingUser !== false) pings.push(`<@${member.id}>`);
+    pings.push(...roleMentionsIn(s.title, s.message));
     const content = pings.join(' ').trim() || undefined;
 
     // Embed (titre/couleur/texte)
@@ -211,6 +220,7 @@ export async function sendGoodbye(guild, member) {
     const pings = [];
     if (s.pingEveryone) pings.push('@everyone');
     if (s.pingUser !== false) pings.push(member?.id ? `<@${member.id}>` : '');
+    pings.push(...roleMentionsIn(s.title, s.message));
     const content = pings.join(' ').trim() || undefined;
 
     await channel.send({ content, embeds: [embed] });

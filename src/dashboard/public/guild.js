@@ -105,6 +105,9 @@
     const pings = [];
     if (wPingAll?.checked) pings.push('<span class="mention">@everyone</span>');
     if (wPingUser?.checked) pings.push(`<span class="mention">@${escapeHtml(data.sample.mention)}</span>`);
+    // Rôles mentionnés dans le titre/message : ils sont pingés dans le texte au-dessus de l'encadré
+    const roleIds = new Set([...`${wTitle.value} ${wMsg.value}`.matchAll(/<@&(\d{17,20})>/g)].map(m => m[1]));
+    roleIds.forEach(id => pings.push(`<span class="mention">@${escapeHtml(data.roles.find(r => r.id === id)?.name || 'rôle')}</span>`));
     $('#pv-ping').innerHTML = pings.join(' ');
     $('#welcome_url_wrap').hidden = wSource.value !== 'url';
   }
