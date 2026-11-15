@@ -923,6 +923,8 @@ app.post('/dashboard/:guildId/social/store/save', async (req, res) => {
     enabled: onToBool(b.store_enabled),
     channelId: snowflakeOrEmpty(b.store_channelId),
     providers: [...new Set(providers)],
+    epicLogoUrl: httpUrlOrEmpty(b.store_epicLogoUrl),
+    steamLogoUrl: httpUrlOrEmpty(b.store_steamLogoUrl),
     message: str(b.store_message, 1500),
     pingEveryone: onToBool(b.store_pingEveryone),
   };

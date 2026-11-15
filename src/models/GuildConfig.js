@@ -181,6 +181,8 @@ const SocialSchema = new mongoose.Schema({
     enabled: { type: Boolean, default: false },
     channelId: { type: String, default: '' },
     providers: { type: [String], default: ['epic'] }, // 'epic', 'steam'
+    epicLogoUrl: { type: String, default: '' },  // vide = logo par défaut
+    steamLogoUrl: { type: String, default: '' },
     message: { type: String, default: '' },
     pingEveryone: { type: Boolean, default: false },
   },

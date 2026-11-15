@@ -663,7 +663,11 @@
           </div>
         </div>
         <div class="field"><label>Salon d'annonce</label><select name="store_channelId"><%- channelOptions(st.channelId) %></select></div>
-        <div class="field"><label>Message</label><input type="text" name="store_message" maxlength="1500" placeholder="🎮 Jeu gratuit à récupérer : **{game}** !" value="<%= st.message || '' %>" /><span class="hint">Variables : <code>{game}</code> <code>{store}</code> · rôle à pinger : <code>&lt;@&amp;ID_du_rôle&gt;</code></span></div>
+        <div class="field"><label>Texte au-dessus de l'annonce (facultatif)</label><input type="text" name="store_message" maxlength="1500" placeholder="<@&ID_du_rôle> un jeu gratuit est dispo !" value="<%= st.message || '' %>" /><span class="hint">Laisse vide pour n'afficher que l'encadré. Variables : <code>{game}</code> <code>{store}</code> · rôle à pinger : <code>&lt;@&amp;ID_du_rôle&gt;</code></span></div>
+        <div class="form-grid">
+          <div class="field"><label>Logo Epic (URL, facultatif)</label><input type="url" name="store_epicLogoUrl" placeholder="Logo par défaut" value="<%= st.epicLogoUrl || '' %>" /></div>
+          <div class="field"><label>Logo Steam (URL, facultatif)</label><input type="url" name="store_steamLogoUrl" placeholder="Logo par défaut" value="<%= st.steamLogoUrl || '' %>" /></div>
+        </div>
         <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="checkbox" class="switch" name="store_pingEveryone" value="on" <%= checked(st.pingEveryone) %> /></label>
         <div class="actions">
           <button class="btn btn-ghost" type="submit" form="store-test-form">Voir les jeux gratuits actuels (test)</button>
