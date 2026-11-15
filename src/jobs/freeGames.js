@@ -7,7 +7,7 @@ const LOG = (...a) => console.log('[FREEGAMES]', ...a);
 // --------- Epic Games (API publique) ----------
 async function fetchEpicFreebies() {
   const url = 'https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=fr-FR&country=FR&allowCountries=FR';
-  const res = await fetch(url, { headers: { 'User-Agent': 'discord-bot-dashboard' } });
+  const res = await fetch(url, { headers: { 'User-Agent': 'discord-bot-dashboard' }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Epic API failed');
   const j = await res.json();
   const data = j?.data?.Catalog?.searchStore?.elements || [];
@@ -42,7 +42,7 @@ async function fetchEpicFreebies() {
 // --------- Steam (fallback simple : jeux à 0€) ----------
 async function fetchSteamFreebies() {
   const url = 'https://store.steampowered.com/search/?maxprice=0&specials=1';
-  const res = await fetch(url, { headers: { 'User-Agent': 'discord-bot-dashboard' } });
+  const res = await fetch(url, { headers: { 'User-Agent': 'discord-bot-dashboard' }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Steam page failed');
   const html = await res.text();
   // Extraction très simple des applis affichées

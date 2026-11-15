@@ -28,7 +28,7 @@ function toYouTubeFeedUrl(input) {
 }
 
 async function fetchYouTubeRSS(feedUrl) {
-  const res = await fetch(feedUrl, { headers: { 'User-Agent': 'discord-bot-dashboard' } });
+  const res = await fetch(feedUrl, { headers: { 'User-Agent': 'discord-bot-dashboard' }, signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`YT RSS ${res.status}`);
   const xml = await res.text();
   // Parsing super simple : on récupère <entry><yt:videoId> et <title>
@@ -42,7 +42,7 @@ async function fetchYouTubeRSS(feedUrl) {
 
 // ------------ Twitch (Helix) ------------
 async function getTwitchAppToken(clientId, clientSecret) {
-  const res = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`, { method: 'POST' });
+  const res = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`, { method: 'POST', signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('Twitch token failed');
   const j = await res.json();
   return j.access_token;
@@ -51,7 +51,8 @@ async function getTwitchAppToken(clientId, clientSecret) {
 async function twitchGetUsers(loginNames, clientId, token) {
   const params = loginNames.map(n => 'login=' + encodeURIComponent(n)).join('&');
   const res = await fetch(`https://api.twitch.tv/helix/users?${params}`, {
-    headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${token}` }
+    headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000)
   });
   if (!res.ok) throw new Error('Twitch users failed');
   const j = await res.json();
@@ -64,7 +65,8 @@ async function twitchGetStreams(userIds, clientId, token) {
     const slice = userIds.slice(i, i + 100);
     const q = slice.map(id => 'user_id=' + encodeURIComponent(id)).join('&');
     const res = await fetch(`https://api.twitch.tv/helix/streams?${q}`, {
-      headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${token}` }
+      headers: { 'Client-ID': clientId, 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000)
     });
     if (!res.ok) throw new Error('Twitch streams failed');
     const j = await res.json();

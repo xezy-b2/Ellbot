@@ -19,5 +19,9 @@ export default async function connectDB() {
     mongoose.connection.on('error', (err) => console.error('[DB] Error', err?.message || err));
   }
 
-  await mongoose.connect(MONGO_URI);
+  await mongoose.connect(MONGO_URI, {
+    // Sans ces limites, une connexion réseau coupée pouvait bloquer une requête indéfiniment
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 45000,
+  });
 }

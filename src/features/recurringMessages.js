@@ -20,7 +20,8 @@ export async function startRecurringMessages(client) {
   }
   scheduledTasks.clear();
 
-  const configs = await GuildConfig.find({ 'recurringMessages.0': { $exists: true } }).lean();
+  console.log('[RECURRING] Chargement des messages récurrents…');
+  const configs = await GuildConfig.find({ 'recurringMessages.0': { $exists: true } }).lean().maxTimeMS(15000);
 
   for (const config of configs) {
     const guildId = config.guildId;

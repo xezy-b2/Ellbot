@@ -21,6 +21,8 @@ const TWITCH_API_BATCH_SIZE = 100; // Limite de l'API Twitch par requête
 let limits = {};
 let streamCache = {};
 let isRunning = false; // Verrou anti-exécution parallèle
+let runningSince = 0;
+const HTTP_TIMEOUT = 15000; // une requête Twitch ne doit jamais bloquer le bot indéfiniment
 
 // ─── Persistance ──────────────────────────────────────────────────────────────
 
@@ -81,7 +83,7 @@ async function getAccessToken(clientId, clientSecret) {
         const response = await axios.post(
             `https://id.twitch.tv/oauth2/token`,
             null,
-            { params: { client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' } }
+            { params: { client_id: clientId, client_secret: clientSecret, grant_type: 'client_credentials' }, timeout: HTTP_TIMEOUT }
         );
         const { access_token, expires_in } = response.data;
         TOKEN_CACHE.accessToken = access_token;
@@ -101,6 +103,7 @@ async function fetchTwitchAPI(endpoint, clientId, accessToken) {
                 'Client-ID': clientId,
                 'Authorization': `Bearer ${accessToken}`,
             },
+            timeout: HTTP_TIMEOUT,
         });
         return response.data;
     } catch (e) {
@@ -126,11 +129,14 @@ async function fetchTwitchAPIBatched(buildEndpoint, items, clientId, accessToken
 // ─── Logique principale ────────────────────────────────────────────────────────
 
 async function getStreamStatus(client, config) {
-    if (isRunning) {
+    // AVANT : si une requête restait bloquée, isRunning restait à true pour toujours
+    // et plus aucun live n'était jamais annoncé. Au-delà de 5 min, on considère le cycle mort.
+    if (isRunning && Date.now() - runningSince < 5 * 60 * 1000) {
         LOG('Cycle précédent toujours en cours, skip.');
         return;
     }
     isRunning = true;
+    runningSince = Date.now();
 
     const { TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET } = config;
 
@@ -140,13 +146,10 @@ async function getStreamStatus(client, config) {
         return;
     }
 
-    const accessToken = await getAccessToken(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET);
-    if (!accessToken) {
-        isRunning = false;
-        return;
-    }
-
     try {
+        const accessToken = await getAccessToken(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET);
+        if (!accessToken) return;
+
         const guildConfigs = await GuildConfig.find({
             'social.twitch.enabled': true,
             'social.twitch.channelId': { $exists: true, $ne: null },
@@ -307,8 +310,11 @@ export async function runTwitchNotifier(client) {
     // Chargement initial des données persistées
     [limits, streamCache] = await Promise.all([loadData(LIMIT_FILE), loadData(CACHE_FILE)]);
 
+    LOG(`Données chargées : ${Object.keys(streamCache).length} live(s) en cache.`);
+
     // Premier check immédiat (awaité pour voir les erreurs)
     await getStreamStatus(client, process.env);
+    LOG('Premier contrôle terminé, prochain dans 2 minutes.');
 
     // Puis toutes les 2 minutes
     setInterval(() => getStreamStatus(client, process.env), 2 * 60 * 1000);

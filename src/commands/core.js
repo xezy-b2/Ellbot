@@ -454,7 +454,7 @@ case 'cat-gif': {
                 
                 try {
                     // Requête à The Cat API pour un GIF aléatoire
-                    const response = await fetch('https://api.thecatapi.com/v1/images/search?mime_types=gif');
+                    const response = await fetch('https://api.thecatapi.com/v1/images/search?mime_types=gif', { signal: AbortSignal.timeout(10000) });
                     
                     if (!response.ok) {
                         throw new Error(`Erreur API: ${response.statusText}`);
