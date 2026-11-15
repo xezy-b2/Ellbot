@@ -265,6 +265,11 @@ input.switch:focus-visible { box-shadow: 0 0 0 3px var(--accent-soft); }
 .button-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 10px; align-items: end; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 @media (max-width: 900px) { .button-row { grid-template-columns: 70px 1fr auto; } .button-row .url-field { grid-column: 1 / -1; } }
 
+.reward-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+
+.reason-row { display: grid; grid-template-columns: 70px minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 10px; align-items: end; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+@media (max-width: 900px) { .reason-row { grid-template-columns: 70px 1fr auto; } .reason-row .field:nth-child(3) { grid-column: 1 / -1; } }
+
 /* ---------- Responsive ---------- */
 @media (max-width: 1080px) {
   .cards-2 { grid-template-columns: 1fr; }

@@ -5,6 +5,8 @@ import cron from 'node-cron';
 import { sendMonthlyLeaderboard } from './utils/monthlylearderboard.js';
 import { assignMonthlyRoles } from './utils/monthlyRoles.js';
 import { startRecurringMessages } from './features/recurringMessages.js';
+import { reportError } from './utils/alerts.js';
+import { runBirthdays } from './features/birthdays.js';
 
 const LOG = (...a) => console.log('[SCHED]', ...a);
 
@@ -54,6 +56,11 @@ export function startSchedulers(client) {
   // Messages récurrents (n'étaient jamais démarrés avant)
   startRecurringMessages(client).catch(e => LOG('recurring error', e.message));
 
+  // Anniversaires : vérifié toutes les heures (et au démarrage, pour rattraper un redémarrage)
+  const birthdayTick = () => runBirthdays(client).catch(e => { LOG('birthdays error', e.message); reportError('Anniversaires', e); });
+  birthdayTick();
+  cron.schedule('1 * * * *', birthdayTick, { timezone: 'Europe/Paris' });
+
   // CLASSEMENT MENSUEL - le 1er de chaque mois à minuit (heure de Paris)
   cron.schedule('0 0 1 * *', async () => {
     LOG('Lancement de la tâche de classement mensuel...');
@@ -63,6 +70,7 @@ export function startSchedulers(client) {
       LOG('Tâche de classement mensuel et attribution des rôles terminées avec succès.');
     } catch (e) {
       LOG('Erreur critique lors du classement mensuel:', e);
+      reportError('Classement mensuel', e);
     }
   }, {
     timezone: 'Europe/Paris'

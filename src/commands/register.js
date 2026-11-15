@@ -135,6 +135,17 @@ new SlashCommandBuilder()
   new SlashCommandBuilder().setName('welcome-preview').setDescription('Affiche un aperçu du panneau de bienvenue.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addChannelOption(opt => opt.setName('salon').setDescription('Le salon où envoyer l\'aperçu.').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder().setName('logs-test').setDescription('Envoie un message de test au salon de logs configuré.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+  new SlashCommandBuilder().setName('anniversaire').setDescription('Gère ton anniversaire sur le serveur.')
+    .addSubcommand(sc => sc.setName('definir').setDescription('Enregistre ta date d\'anniversaire.')
+      .addIntegerOption(o => o.setName('jour').setDescription('Jour (1 à 31)').setRequired(true).setMinValue(1).setMaxValue(31))
+      .addIntegerOption(o => o.setName('mois').setDescription('Mois').setRequired(true)
+        .addChoices(...['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'].map((name, i) => ({ name, value: i + 1 }))))
+      .addIntegerOption(o => o.setName('annee').setDescription('Année de naissance (facultatif, pour afficher ton âge)').setRequired(false)))
+    .addSubcommand(sc => sc.setName('voir').setDescription('Affiche l\'anniversaire d\'un membre.')
+      .addUserOption(o => o.setName('membre').setDescription('Le membre (toi par défaut).').setRequired(false)))
+    .addSubcommand(sc => sc.setName('liste').setDescription('Affiche les prochains anniversaires du serveur.'))
+    .addSubcommand(sc => sc.setName('supprimer').setDescription('Supprime ton anniversaire.')),
+
   // Ces deux commandes avaient un code mais n'étaient pas enregistrées auprès de Discord
   new SlashCommandBuilder().setName('avatar').setDescription('Affiche l\'avatar d\'un utilisateur.')
     .addUserOption(opt => opt.setName('cible').setDescription('L\'utilisateur.').setRequired(false)),

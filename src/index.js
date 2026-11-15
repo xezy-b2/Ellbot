@@ -16,8 +16,11 @@ import { bindLogHandlers } from './logger/logEvents.js';
 import UserXP from './models/UserXP.js';
 import { levelFromXP } from './utils/xp.js';
 import generateRankCard from './utils/generateRankCard.js';
-import { handleTicketInteraction, handleTicketCloseInteraction } from './features/tickets.js';
+import { handleTicketInteraction, handleTicketCloseInteraction, handleTicketClaimInteraction } from './features/tickets.js';
 import { handleAutomod } from './features/automod.js';
+import { syncLevelRoles } from './features/levelRoles.js';
+import { reportError, reportInfo } from './utils/alerts.js';
+import { getGuildConfig } from './utils/configCache.js';
 
 const XP_COOLDOWN = 60;
 const XP_PER_MESSAGE = 3;
@@ -66,6 +69,13 @@ client.once(Events.ClientReady, async () => {
   await startDashboard(client);
   await registerApplicationCommands(client);
   startSchedulers(client);
+  reportInfo('✅ Bot démarré', `Connecté en tant que **${client.user.tag}** sur ${client.guilds.cache.size} serveur(s).`);
+});
+
+client.on(Events.Error, (e) => { console.error('[DISCORD] Erreur client :', e); reportError('Client Discord', e); });
+client.on(Events.ShardDisconnect, (ev) => {
+  if (ev?.code === 1000) return; // arrêt volontaire (!restart, !shutdown)
+  reportError('Déconnexion de Discord', `Code ${ev?.code ?? '?'} — reconnexion automatique en cours.`);
 });
 
 // AVANT : sendGoodbye(member) alors que la fonction attend (guild, member)
@@ -111,7 +121,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.isButton()) {
       const id = interaction.customId;
       if (id === 'ticket-open') await handleTicketInteraction(interaction);
-      else if (id === 'ticket-close') await handleTicketCloseInteraction(interaction);
+      else if (id === 'ticket-claim') await handleTicketClaimInteraction(interaction);
+      else if (['ticket-close', 'ticket-close-confirm', 'ticket-close-cancel'].includes(id)) await handleTicketCloseInteraction(interaction);
       else if (id.startsWith('rr-btn-')) await handleReactionRoleInteraction(interaction);
       else if (id.startsWith('embed-edit-preview_') || id.startsWith('embed-send-preview_')) await handleCoreInteraction(interaction);
       // Les boutons pfc_* sont gérés par le collector de la commande /pfc
@@ -120,6 +131,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === 'rr_select') await handleReactionRoleInteraction(interaction);
+      else if (interaction.customId === 'ticket-open-select') await handleTicketInteraction(interaction);
       return;
     }
     // AVANT : handleAutomod(client, message, …) était appelé ici, dans le bloc des menus
@@ -127,6 +139,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // et l'automod ne tournait jamais. Il est maintenant dans messageCreate.
   } catch (e) {
     console.error('[INTERACTION] Erreur :', e);
+    reportError(`Interaction ${interaction.commandName || interaction.customId || interaction.type}`, e);
     await replyError(interaction, '❌ Une erreur est survenue lors de l\'exécution de cette action.');
   }
 });
@@ -167,14 +180,20 @@ async function handleXP(message, guildConfig) {
 
   if (updated.level !== newLevel) await UserXP.updateOne({ _id: updated._id }, { $set: { level: newLevel } });
 
-  // Comme avant : l'annonce n'est envoyée que si un salon de level-up est configuré
+  // Rôles de récompense
+  const newRoles = await syncLevelRoles(message.member, newLevel, guildConfig.xp);
+
+  // Annonce : réglage du dashboard ; s'il n'a jamais été touché, comportement d'origine
+  // (annonce uniquement si un salon de level-up est choisi)
   const levelUpChannelId = guildConfig.xp.messageChannelId;
-  if (!levelUpChannelId) return;
-  const channel = message.guild.channels.cache.get(levelUpChannelId);
+  const announce = guildConfig.xp.announceLevelUp ?? !!levelUpChannelId;
+  if (!announce) return;
+  const channel = levelUpChannelId ? message.guild.channels.cache.get(levelUpChannelId) : message.channel;
   if (!channel?.isTextBased?.()) return;
 
   const template = guildConfig.xp.levelUpMessage || 'Félicitations, {user.mention} ! Tu es maintenant au niveau **{level}** ! 🎉';
-  const content = fillLevelUpTemplate(template, author, newLevel);
+  let content = fillLevelUpTemplate(template, author, newLevel);
+  if (newRoles.length) content += `\n🎁 Nouveau rôle : ${newRoles.map(id => `<@&${id}>`).join(', ')}`;
 
   let files = [];
   try {
@@ -204,8 +223,8 @@ client.on(Events.MessageCreate, async (message) => {
       }
     }
 
-    // Une seule lecture de la config par message (il y en avait deux avant)
-    const guildConfig = await GuildConfig.findOne({ guildId: message.guild.id }).lean();
+    // Config lue depuis le cache mémoire (plus de requête MongoDB à chaque message)
+    const guildConfig = await getGuildConfig(message.guild.id);
 
     // --- Auto-modération ---
     if (guildConfig?.automod?.enabled) {
@@ -275,15 +294,18 @@ client.on(Events.MessageCreate, async (message) => {
     }
   } catch (e) {
     console.error('[MSG] Handler error:', e);
+    reportError('Traitement d\'un message', e);
   }
 });
 
 process.on('unhandledRejection', (reason) => {
   console.error('[UNHANDLED REJECTION]', reason);
+  reportError('Promesse non gérée', reason);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('[UNCAUGHT EXCEPTION]', err);
+  reportError('Exception non gérée', err);
 });
 
 // On se connecte à MongoDB AVANT Discord (avant, les deux démarraient en parallèle
@@ -292,6 +314,8 @@ try {
   await connectDB();
 } catch (e) {
   console.error('[BOOT] Connexion MongoDB impossible :', e.message);
+  reportError('Démarrage : connexion MongoDB impossible', e);
+  await new Promise(r => setTimeout(r, 2000)); // laisse le temps à l'alerte de partir
   process.exit(1);
 }
 await client.login(BOT_TOKEN);

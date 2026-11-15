@@ -1,6 +1,6 @@
 // src/logger/logEvents.js
 
-import GuildConfig from '../models/GuildConfig.js';
+import { getGuildConfig } from '../utils/configCache.js';
 import { EmbedBuilder } from 'discord.js';
 
 function getLogChannel(guild, conf) {
@@ -13,7 +13,7 @@ function getLogChannel(guild, conf) {
 
 export function bindLogHandlers(client) {
   client.on('guildMemberAdd', async (member) => {
-    const conf = await GuildConfig.findOne({ guildId: member.guild.id }).lean().catch(()=>null);
+    const conf = await getGuildConfig(member.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.joins) return;
     const ch = getLogChannel(member.guild, conf);
     if (!ch) return;
@@ -33,7 +33,7 @@ export function bindLogHandlers(client) {
     // Si le contenu n'a pas changé (ex : simple ajout d'embed), on s'arrête
     if (_old.content != null && _old.content === msg.content) return;
 
-    const conf = await GuildConfig.findOne({ guildId: msg.guild.id }).lean().catch(() => null);
+    const conf = await getGuildConfig(msg.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.messageEdited) return; 
     
     const ch = getLogChannel(msg.guild, conf);
@@ -67,7 +67,7 @@ ${newContent}
     // Vérifier si le message a une guilde, et si on a au moins l'ID de l'auteur.
     if (!message.guild || !message.author?.id) return; 
 
-    const conf = await GuildConfig.findOne({ guildId: message.guild.id }).lean().catch(() => null);
+    const conf = await getGuildConfig(message.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.messageDeleted) return;
     
     const ch = getLogChannel(message.guild, conf);
@@ -93,7 +93,7 @@ ${messageContent}
   });
 
   client.on('guildBanAdd', async (ban) => {
-    const conf = await GuildConfig.findOne({ guildId: ban.guild.id }).lean().catch(()=>null);
+    const conf = await getGuildConfig(ban.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.bans) return;
     const ch = getLogChannel(ban.guild, conf);
     if (!ch) return;
@@ -108,7 +108,7 @@ ${messageContent}
   });
 
   client.on('guildMemberRemove', async (member) => {
-    const conf = await GuildConfig.findOne({ guildId: member.guild.id }).lean().catch(()=>null);
+    const conf = await getGuildConfig(member.guild.id).catch(() => null);
     if (!conf?.logs?.enabled || !conf.logs.leaves) return;
     const ch = getLogChannel(member.guild, conf);
     if (!ch) return;

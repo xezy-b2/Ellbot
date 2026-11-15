@@ -22,6 +22,10 @@
   const lb = conf?.monthlyLeaderboard || {};
   const tk = ticketConfig || {};
   const tw = conf?.social?.twitch || {};
+  const yt = conf?.social?.youtube || {};
+  const st = conf?.social?.store || {};
+  const bd = conf?.birthdays || {};
+  const bdList = typeof birthdayList !== 'undefined' ? birthdayList : [];
   const logs = conf?.logs || {};
   const am = conf?.automod || {};
   const cmds = conf?.customCommands || [];
@@ -37,17 +41,18 @@
     { tab: 'goodbye',     icon: '🚪', name: 'Départ',             on: !!gb.enabled,      desc: 'Message quand un membre quitte le serveur.' },
     { tab: 'xp',          icon: '⭐', name: 'XP & niveaux',       on: !!xp.enabled,      desc: 'XP par message, cartes de rang, annonces.' },
     { tab: 'leaderboard', icon: '🏆', name: 'Classement du mois', on: !!lb.enabled,      desc: 'Top du mois et rôles de récompense.' },
+    { tab: 'birthdays',   icon: '🎂', name: 'Anniversaires',      on: !!bd.enabled,      desc: 'Message et rôle le jour J.' },
     { tab: 'tickets',     icon: '📩', name: 'Tickets',            on: !!tk.enabled,      desc: 'Support privé avec transcription.' },
     { tab: 'rr',          icon: '🧩', name: 'Rôles réaction',     on: panels.length > 0, desc: `${panels.length} panneau(x) configuré(s).` },
     { tab: 'commands',    icon: '💬', name: 'Commandes perso',    on: cmds.length > 0,   desc: `${cmds.length} commande(s) avec le préfixe !` },
     { tab: 'recurring',   icon: '🔁', name: 'Messages récurrents', on: recs.length > 0,  desc: `${recs.length} message(s) planifié(s).` },
-    { tab: 'social',      icon: '📣', name: 'Twitch',             on: !!tw.enabled,      desc: 'Annonce des lives.' },
+    { tab: 'social',      icon: '📣', name: 'Notifications',      on: !!(tw.enabled || yt.enabled || st.enabled), desc: 'Lives Twitch, vidéos YouTube, jeux gratuits.' },
     { tab: 'logs',        icon: '📜', name: 'Logs',               on: !!logs.enabled,    desc: 'Arrivées, messages, sanctions.' },
     { tab: 'automod',     icon: '🛡️', name: 'Auto-modération',    on: !!am.enabled,      desc: 'Mots interdits, liens, spam.' },
   ];
   const byTab = Object.fromEntries(modules.map(m => [m.tab, m]));
   const navGroups = [
-    ['Membres', ['welcome', 'goodbye', 'xp', 'leaderboard']],
+    ['Membres', ['welcome', 'goodbye', 'xp', 'leaderboard', 'birthdays']],
     ['Outils', ['tickets', 'rr', 'commands', 'recurring']],
     ['Intégrations', ['social']],
     ['Modération', ['logs', 'automod']],
@@ -57,6 +62,8 @@
     guildId: guild.id,
     rrPanels: panels.map(p => ({ _id: String(p._id), title: p.title || '', description: p.description || '', channelId: p.channelId || '', mode: p.mode || 'multi', type: p.type || 'dropdown', entries: (p.entries || []).map(e => ({ emoji: e.emoji || '', label: e.label || '', roleId: e.roleId || '', style: e.style || 'Secondary' })) })),
     roles: roleList.map(r => ({ id: r.id, name: r.name })),
+    xpRewards: (xp.roleRewards || []).map(r => ({ level: r.level, roleId: r.roleId })),
+    ticketReasons: (tk.reasons || []).map(r => ({ label: r.label || '', emoji: r.emoji || '', description: r.description || '' })),
     recurring: recs.map(r => { const sc = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]?.schedule) || r.schedule || {}; return { id: r.id, channelId: r.channelId, content: r.content, cron: r.cron, buttons: (r.buttons || []).map(x => ({ label: x.label || '', url: x.url || '', emoji: x.emoji || '' })), embed: { enabled: !!r.embed?.enabled, title: r.embed?.title || '', color: r.embed?.color || '#5865F2', imageUrl: r.embed?.imageUrl || '' }, schedule: { mode: sc.mode || 'custom', time: sc.time || '09:00', days: [...(sc.days || [])], monthDay: sc.monthDay || 1, everyHours: sc.everyHours || 1 } }; }),
     sample: { mention: user?.global_name || user?.username || 'Utilisateur', username: user?.username || 'Utilisateur', displayName: user?.global_name || user?.username || 'Utilisateur' },
     server: { name: guild.name || '', memberCount: guild.memberCount || 0 },
@@ -242,12 +249,24 @@
       <span class="chip <%= xp.enabled ? 'on' : '' %>"><%= xp.enabled ? 'Actif' : 'Inactif' %></span>
     </div>
     <div class="cards-2">
-      <form class="card" method="post" action="/dashboard/<%= guild.id %>/xp/save">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/xp/save" id="xp-form">
         <div class="card-head"><div><h2>Réglages</h2></div></div>
         <div class="card-body stack">
           <label class="toggle-row"><span class="toggle-text"><strong>Activer le système d'XP</strong><span>Compte aussi les messages pour le classement du mois</span></span><input type="hidden" name="xp_enabled" value="off" /><input type="checkbox" class="switch" name="xp_enabled" value="on" <%= checked(xp.enabled) %> /></label>
-          <div class="field"><label>Salon des annonces de niveau</label><select name="xp_messageChannelId"><%- channelOptions(xp.messageChannelId, '— Pas d\'annonce —') %></select><span class="hint">Laisse vide pour ne pas annoncer les passages de niveau.</span></div>
-          <div class="field"><label>Message de passage de niveau</label><textarea name="xp_levelUpMessage" placeholder="Félicitations, {user.mention} ! Tu es maintenant au niveau **{level}** ! 🎉"><%= xp.levelUpMessage || '' %></textarea><span class="hint">Variables : <code>{user.mention}</code> <code>{user.username}</code> <code>{level}</code></span></div>
+
+          <div class="divider"></div>
+          <h3>Annonces de niveau</h3>
+          <% const announce = xp.announceLevelUp ?? !!xp.messageChannelId; %>
+          <label class="toggle-row"><span class="toggle-text"><strong>Annoncer les passages de niveau</strong><span>Message + carte de rang quand un membre monte de niveau</span></span><input type="hidden" name="xp_announce" value="off" /><input type="checkbox" class="switch" name="xp_announce" value="on" <%= checked(announce) %> /></label>
+          <div class="field"><label>Salon des annonces</label><select name="xp_messageChannelId"><%- channelOptions(xp.messageChannelId, '— Le salon où le membre a parlé —') %></select></div>
+          <div class="field"><label>Message de passage de niveau</label><textarea name="xp_levelUpMessage" placeholder="Félicitations, {user.mention} ! Tu es maintenant au niveau **{level}** ! 🎉"><%= xp.levelUpMessage || '' %></textarea><span class="hint">Variables : <code>{user.mention}</code> <code>{user.username}</code> <code>{level}</code>. Le nouveau rôle gagné est ajouté automatiquement en dessous.</span></div>
+
+          <div class="divider"></div>
+          <div class="inline" style="justify-content:space-between"><h3>Rôles par niveau</h3><button type="button" class="btn btn-ghost btn-sm" id="xp-add-reward">＋ Ajouter un palier</button></div>
+          <p class="hint">Le rôle est donné dès que le membre atteint le niveau. Le rôle du bot doit être au-dessus de ces rôles dans la liste des rôles du serveur.</p>
+          <div class="list" id="xp-rewards"></div>
+          <label class="toggle-row"><span class="toggle-text"><strong>Garder les rôles des niveaux précédents</strong><span>Désactivé : seul le rôle du plus haut palier atteint est conservé</span></span><input type="hidden" name="xp_stackRoles" value="off" /><input type="checkbox" class="switch" name="xp_stackRoles" value="on" <%= checked(xp.stackRoles !== false) %> /></label>
+
           <div class="actions"><button class="btn" type="submit">Enregistrer</button></div>
         </div>
       </form>
@@ -304,10 +323,53 @@
     <form id="lb-test-form" method="post" action="/dashboard/<%= guild.id %>/leaderboard/test"></form>
   </section>
 
+  <!-- ===== Anniversaires ===== -->
+  <section class="panel" id="panel-birthdays">
+    <div class="panel-head">
+      <div><h1>🎂 Anniversaires</h1><p>Les membres enregistrent leur date avec <code>/anniversaire definir</code>. Le jour J, le bot leur souhaite un joyeux anniversaire et peut leur donner un rôle pour la journée.</p></div>
+      <span class="chip <%= bd.enabled ? 'on' : '' %>"><%= bd.enabled ? 'Actif' : 'Inactif' %></span>
+    </div>
+    <div class="cards-2">
+      <form class="card" method="post" action="/dashboard/<%= guild.id %>/birthdays/save">
+        <div class="card-head"><div><h2>Réglages</h2></div></div>
+        <div class="card-body stack">
+          <label class="toggle-row"><span class="toggle-text"><strong>Activer les anniversaires</strong></span><input type="checkbox" class="switch" name="birthdays_enabled" value="on" <%= checked(bd.enabled) %> /></label>
+          <div class="form-grid">
+            <div class="field"><label>Salon de l'annonce</label><select name="birthdays_channelId"><%- channelOptions(bd.channelId) %></select></div>
+            <div class="field"><label>Heure de l'annonce</label><select name="birthdays_hour"><% for (let h = 0; h < 24; h++) { %><option value="<%= h %>" <%= (bd.hour ?? 9) === h ? 'selected' : '' %>><%= String(h).padStart(2, '0') %>:00</option><% } %></select></div>
+          </div>
+          <div class="field"><label>Message</label><input type="text" name="birthdays_message" maxlength="1500" placeholder="🎂 Joyeux anniversaire {user} ! {age}" value="<%= bd.message || '' %>" /><span class="hint">Variables : <code>{user}</code> (mention) · <code>{age}</code> (« (25 ans) », seulement si l'année est renseignée)</span></div>
+          <div class="field"><label>Rôle du jour (facultatif)</label><select name="birthdays_roleId"><%- roleOptions(bd.roleId) %></select><span class="hint">Donné le jour J, retiré le lendemain. Le rôle du bot doit être au-dessus.</span></div>
+          <div class="actions">
+            <button class="btn btn-ghost" type="submit" form="bd-test-form">Envoyer un test</button>
+            <button class="btn" type="submit">Enregistrer</button>
+          </div>
+        </div>
+      </form>
+      <form id="bd-test-form" method="post" action="/dashboard/<%= guild.id %>/birthdays/test"></form>
+
+      <div class="card">
+        <div class="card-head"><div><h2>Prochains anniversaires</h2></div></div>
+        <div class="card-body">
+          <% if (!bdList.length) { %><div class="empty">Personne n'a encore enregistré son anniversaire.<br />Les membres utilisent <code>/anniversaire definir</code>.</div><% } else { %>
+            <div class="list">
+              <% bdList.forEach(b => { %>
+                <div class="list-row" style="align-items:center">
+                  <div class="list-main"><strong><%= b.name %></strong><p><%= b.date %></p></div>
+                  <span class="chip plain"><%= b.inDays === 0 ? "Aujourd'hui 🎉" : b.inDays === 1 ? 'Demain' : `Dans ${b.inDays} jours` %></span>
+                </div>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== Tickets ===== -->
   <section class="panel" id="panel-tickets">
     <div class="panel-head">
-      <div><h1>📩 Tickets</h1><p>Les membres ouvrent un salon privé avec le staff en cliquant sur un bouton. À la fermeture, une transcription HTML est envoyée dans le salon de logs.</p></div>
+      <div><h1>📩 Tickets</h1><p>Les membres ouvrent un salon privé avec le staff. Le staff peut « prendre en charge » un ticket, et à la fermeture une transcription HTML est envoyée dans le salon de logs.</p></div>
       <span class="chip <%= tk.enabled ? 'on' : '' %>"><%= tk.enabled ? 'Actif' : 'Inactif' %></span>
     </div>
     <form class="card" id="ticketForm" method="post" action="/dashboard/<%= guild.id %>/tickets/save" style="max-width:860px">
@@ -324,6 +386,16 @@
           <div class="field"><label>Rôle du support</label><select id="ticket-staffRoleId" name="supportRoleId"><%- roleOptions(tk.supportRoleId) %></select><span class="hint">Voit tous les tickets et peut les fermer.</span></div>
           <div class="field"><label>Salon des logs de tickets</label><select id="ticket-logsChannelId" name="logChannelId"><%- channelOptions(tk.logChannelId) %></select></div>
         </div>
+        <div class="form-grid">
+          <label class="toggle-row"><span class="toggle-text"><strong>Le membre peut fermer son ticket</strong><span>Sinon, seul le staff peut le fermer</span></span><input type="hidden" name="allowOwnerClose" value="off" /><input type="checkbox" class="switch" name="allowOwnerClose" value="on" <%= checked(tk.allowOwnerClose !== false) %> /></label>
+          <label class="toggle-row"><span class="toggle-text"><strong>Transcription en MP</strong><span>Le membre reçoit l'historique à la fermeture</span></span><input type="checkbox" class="switch" name="dmTranscript" value="on" <%= checked(tk.dmTranscript) %> /></label>
+        </div>
+
+        <div class="divider"></div>
+        <div class="inline" style="justify-content:space-between"><h3>Motifs d'ouverture</h3><button type="button" class="btn btn-ghost btn-sm" id="ticket-add-reason">＋ Ajouter un motif</button></div>
+        <p class="hint">Avec des motifs, le panneau affiche un menu déroulant (« Support », « Signalement »…) et le motif choisi apparaît dans le ticket et dans les logs. Sans motif : un simple bouton. 10 max. Pense à republier le panneau après modification.</p>
+        <div class="list" id="ticket-reasons"></div>
+
         <div class="divider"></div>
         <h3>Panneau d'ouverture</h3>
         <div class="field"><label>Titre</label><input type="text" id="ticket-panel-title" name="panelTitle" maxlength="256" placeholder="Ouvrir un ticket" value="<%= tk.panelMessage?.title || '' %>" /></div>
@@ -536,10 +608,11 @@
   <!-- ===== Twitch ===== -->
   <section class="panel" id="panel-social">
     <div class="panel-head">
-      <div><h1>📣 Notifications Twitch</h1><p>Le bot vérifie toutes les 2 minutes et annonce chaque nouveau live (5 annonces max par streamer et par jour).</p></div>
-      <span class="chip <%= tw.enabled ? 'on' : '' %>"><%= tw.enabled ? 'Actif' : 'Inactif' %></span>
+      <div><h1>📣 Notifications</h1><p>Annonce automatique des lives Twitch, des nouvelles vidéos YouTube et des jeux gratuits.</p></div>
     </div>
-    <form class="card" id="socialForm" method="post" action="/dashboard/<%= guild.id %>/social/save" style="max-width:760px">
+    <div class="stack" style="max-width:860px">
+    <form class="card" id="socialForm" method="post" action="/dashboard/<%= guild.id %>/social/save">
+      <div class="card-head"><div><h2>🟣 Twitch</h2><p>Vérifié toutes les 2 minutes · 5 annonces max par streamer et par jour</p></div><span class="chip <%= tw.enabled ? 'on' : '' %>"><%= tw.enabled ? 'Actif' : 'Inactif' %></span></div>
       <div class="card-body stack">
         <label class="toggle-row"><span class="toggle-text"><strong>Activer les annonces Twitch</strong></span><input type="hidden" name="twitch_enabled" value="off" /><input type="checkbox" class="switch" id="twitch-enabled" name="twitch_enabled" value="on" <%= checked(tw.enabled) %> /></label>
         <div class="field"><label>Streamers suivis</label><input type="text" id="twitch-usernames" name="twitch_usernames" placeholder="streamer1, streamer2" value="<%= (tw.usernames || []).join(', ') %>" /><span class="hint">Noms Twitch séparés par des virgules.</span></div>
@@ -556,6 +629,50 @@
       </div>
     </form>
     <form id="social-test-form" method="post" action="/dashboard/<%= guild.id %>/social/test"></form>
+
+    <form class="card" method="post" action="/dashboard/<%= guild.id %>/social/youtube/save">
+      <div class="card-head"><div><h2>🔴 YouTube</h2><p>Vérifié toutes les 5 minutes · les vidéos déjà en ligne au moment de l'ajout ne sont pas annoncées</p></div><span class="chip <%= yt.enabled ? 'on' : '' %>"><%= yt.enabled ? 'Actif' : 'Inactif' %></span></div>
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Annoncer les nouvelles vidéos</strong></span><input type="checkbox" class="switch" name="youtube_enabled" value="on" <%= checked(yt.enabled) %> /></label>
+        <div class="field">
+          <label>Chaînes suivies (une par ligne)</label>
+          <textarea name="youtube_channels" placeholder="https://www.youtube.com/@ma-chaine&#10;@autre-chaine"><%= (yt.channels || []).map(c => c.name ? `${c.name} (${c.id})` : c.id).join('\n') %></textarea>
+          <span class="hint">Lien de la chaîne, <code>@pseudo</code> ou identifiant <code>UC…</code>. 15 chaînes max.</span>
+          <% if ((yt.channels || []).length) { %><div class="inline"><% yt.channels.forEach(c => { %><span class="tag"><%= c.name || c.id %></span><% }) %></div><% } %>
+        </div>
+        <div class="field"><label>Salon d'annonce</label><select name="youtube_channelId"><%- channelOptions(yt.channelId) %></select></div>
+        <div class="field"><label>Message</label><input type="text" name="youtube_message" maxlength="1500" placeholder="📺 **{channel}** a publié une nouvelle vidéo !" value="<%= yt.message || '' %>" /><span class="hint">Variables : <code>{channel}</code> <code>{title}</code></span></div>
+        <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="checkbox" class="switch" name="youtube_pingEveryone" value="on" <%= checked(yt.pingEveryone) %> /></label>
+        <div class="actions">
+          <button class="btn btn-ghost" type="submit" form="yt-test-form">Envoyer la dernière vidéo (test)</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+    <form id="yt-test-form" method="post" action="/dashboard/<%= guild.id %>/social/youtube/test"></form>
+
+    <form class="card" method="post" action="/dashboard/<%= guild.id %>/social/store/save">
+      <div class="card-head"><div><h2>🎮 Jeux gratuits</h2><p>Vérifié toutes les 2 heures · chaque jeu n'est annoncé qu'une fois</p></div><span class="chip <%= st.enabled ? 'on' : '' %>"><%= st.enabled ? 'Actif' : 'Inactif' %></span></div>
+      <div class="card-body stack">
+        <label class="toggle-row"><span class="toggle-text"><strong>Annoncer les jeux gratuits</strong><span>Jeux normalement payants offerts pour une durée limitée</span></span><input type="checkbox" class="switch" name="store_enabled" value="on" <%= checked(st.enabled) %> /></label>
+        <div class="field">
+          <label>Boutiques</label>
+          <div class="day-picker">
+            <label><input type="checkbox" name="store_providers" value="epic" <%= checked((st.providers || ['epic']).includes('epic')) %> /><span style="width:auto;padding:0 14px">Epic Games</span></label>
+            <label><input type="checkbox" name="store_providers" value="steam" <%= checked((st.providers || []).includes('steam')) %> /><span style="width:auto;padding:0 14px">Steam</span></label>
+          </div>
+        </div>
+        <div class="field"><label>Salon d'annonce</label><select name="store_channelId"><%- channelOptions(st.channelId) %></select></div>
+        <div class="field"><label>Message</label><input type="text" name="store_message" maxlength="1500" placeholder="🎮 Jeu gratuit à récupérer : **{game}** !" value="<%= st.message || '' %>" /><span class="hint">Variables : <code>{game}</code> <code>{store}</code></span></div>
+        <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="checkbox" class="switch" name="store_pingEveryone" value="on" <%= checked(st.pingEveryone) %> /></label>
+        <div class="actions">
+          <button class="btn btn-ghost" type="submit" form="store-test-form">Voir les jeux gratuits actuels (test)</button>
+          <button class="btn" type="submit">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+    <form id="store-test-form" method="post" action="/dashboard/<%= guild.id %>/social/store/test"></form>
+    </div>
   </section>
 
   <!-- ===== Logs ===== -->

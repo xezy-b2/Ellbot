@@ -33,6 +33,9 @@
     socialTest: { ok: 'Notification de test envoyée.' },
     lbTest: { ok: 'Classement de test envoyé.' },
     xpBg: { ok: 'Fond des cartes de rang mis à jour.' },
+    ytTest: { ok: 'Dernière vidéo envoyée (sans ping).' },
+    bdTest: { ok: "Message d'anniversaire de test envoyé." },
+    storeTest: { ok: 'Jeux gratuits actuels envoyés (sans ping).' },
   };
   const ERRORS = {
     error: () => "Une erreur est survenue lors de l'enregistrement.",
@@ -45,6 +48,10 @@
     socialTest: (v) => ({ nosocial: "Twitch n'est pas encore configuré.", nosent: 'Active Twitch et choisis un salon, puis enregistre.', error: "Le bot n'a pas pu envoyer le message (permissions ?)." }[v] || null),
     lbTest: (v) => ({ disabled: 'Active le classement et choisis un salon, puis enregistre.', channel: 'Le salon du classement est introuvable.', error: "Le bot n'a pas pu envoyer le message." }[v] || null),
     xpBg: (v) => ({ 'no-file': 'Aucun fichier sélectionné.', error: "Échec de l'envoi de l'image." }[v] || null),
+    bdTest: (v) => (v === 'channel' ? 'Choisis un salon pour les anniversaires, puis enregistre.' : null),
+    ytNotFound: (v) => `Chaîne(s) YouTube introuvable(s) : ${v}. Vérifie le lien ou utilise l'identifiant UC…`,
+    ytTest: (v) => (v === 'ok' ? null : ({ config: 'Ajoute au moins une chaîne et un salon, puis enregistre.', channel: 'Le salon choisi est introuvable.', novideo: "Cette chaîne n'a encore aucune vidéo." }[v] || `Test impossible : ${v}`)),
+    storeTest: (v) => (v === 'ok' ? null : ({ config: 'Choisis au moins une boutique et un salon, puis enregistre.', channel: 'Le salon choisi est introuvable.', nogames: "Aucun jeu gratuit en ce moment (ou boutique injoignable)." }[v] || `Test impossible : ${v}`)),
   };
 
   const query = new URLSearchParams(location.search);
@@ -113,6 +120,57 @@
     if (r.ok) location.href = `/dashboard/${data.guildId}?xpBg=ok#xp`;
     else toast("Impossible de retirer l'image.", 'error');
   });
+
+  // ---------------- XP : rôles par niveau ----------------
+  const rewardsBox = $('#xp-rewards');
+  if (rewardsBox) {
+    let rIdx = 0;
+    const roleOptions = (selected) => '<option value="">— Choisir un rôle —</option>' +
+      data.roles.map(r => `<option value="${escapeHtml(r.id)}"${r.id === selected ? ' selected' : ''}>@ ${escapeHtml(r.name)}</option>`).join('');
+    function addReward(r = {}) {
+      if ($$('.reward-row', rewardsBox).length >= 25) return toast('25 paliers maximum.', 'error');
+      const i = rIdx++;
+      const row = document.createElement('div');
+      row.className = 'reward-row';
+      row.innerHTML = `
+        <div class="field"><label>Niveau</label><input type="number" min="1" max="1000" name="rewards[${i}][level]" value="${escapeHtml(r.level ?? '')}" placeholder="10" required /></div>
+        <div class="field"><label>Rôle donné</label><select name="rewards[${i}][roleId]" required>${roleOptions(r.roleId)}</select></div>
+        <button type="button" class="btn btn-danger btn-sm" aria-label="Retirer le palier">✕</button>`;
+      row.querySelector('button').addEventListener('click', () => { row.remove(); emptyState(); });
+      rewardsBox.appendChild(row);
+      emptyState();
+    }
+    function emptyState() {
+      const empty = rewardsBox.querySelector('.empty');
+      const has = $$('.reward-row', rewardsBox).length > 0;
+      if (!has && !empty) rewardsBox.insertAdjacentHTML('beforeend', '<div class="empty" style="padding:16px">Aucun palier pour l\'instant.</div>');
+      if (has && empty) empty.remove();
+    }
+    (data.xpRewards || []).forEach(addReward);
+    emptyState();
+    $('#xp-add-reward').addEventListener('click', () => addReward());
+  }
+
+  // ---------------- Tickets : motifs ----------------
+  const reasonsBox = $('#ticket-reasons');
+  if (reasonsBox) {
+    let tIdx = 0;
+    const addReason = (r = {}) => {
+      if ($$('.reason-row', reasonsBox).length >= 10) return toast('10 motifs maximum.', 'error');
+      const i = tIdx++;
+      const row = document.createElement('div');
+      row.className = 'reason-row';
+      row.innerHTML = `
+        <div class="field"><label>Emoji</label><input type="text" name="reasons[${i}][emoji]" value="${escapeHtml(r.emoji)}" placeholder="🛠️" maxlength="64" /></div>
+        <div class="field"><label>Motif</label><input type="text" name="reasons[${i}][label]" value="${escapeHtml(r.label)}" placeholder="Support" maxlength="80" required /></div>
+        <div class="field"><label>Description (facultatif)</label><input type="text" name="reasons[${i}][description]" value="${escapeHtml(r.description)}" placeholder="Un problème avec le serveur" maxlength="100" /></div>
+        <button type="button" class="btn btn-danger btn-sm" aria-label="Retirer le motif">✕</button>`;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      reasonsBox.appendChild(row);
+    };
+    (data.ticketReasons || []).forEach(addReason);
+    $('#ticket-add-reason').addEventListener('click', () => addReason());
+  }
 
   // ---------------- Tickets : publier le panneau ----------------
   $('#ticket-post')?.addEventListener('click', async (e) => {

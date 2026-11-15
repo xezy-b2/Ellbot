@@ -12,13 +12,19 @@ import multer from 'multer';
 import cron from 'node-cron';
 import { randomUUID, randomBytes } from 'crypto';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { postTicketPanel } from '../features/tickets.js';
+import { postTicketPanel, cleanReasons } from '../features/tickets.js';
 import GuildConfig from '../models/GuildConfig.js';
 import ReactionRole from '../models/ReactionRole.js';
 import { postReactionRolePanel } from '../features/reactionRoles.js';
 import { composeWelcomeImageEx, resolveImageSrc } from '../utils/imageComposer.js';
 import { startRecurringMessages, buildSchedule, describeSchedule, inferSchedule, getNextRunFor, sendRecurringNow, cleanButtons, TIMEZONE } from '../features/recurringMessages.js';
 import { MONGO_URI } from '../database.js';
+import { reportError } from '../utils/alerts.js';
+import { normalizeRewards } from '../features/levelRoles.js';
+import { resolveYouTubeChannel } from '../utils/youtube.js';
+import { sendYouTubeTest } from '../jobs/socialNotifier.js';
+import { sendFreeGamesTest } from '../jobs/freeGames.js';
+import { upcomingBirthdays, formatDate } from '../features/birthdays.js';
 import { DATA_DIR, UPLOADS_DIR } from '../paths.js';
 
 const app = express();
@@ -513,6 +519,9 @@ app.post('/dashboard/:guildId/tickets/save', async (req, res) => {
       title: str(data.welcomeMessage?.title ?? data.welcomeTitle, 256),
       description: str(data.welcomeMessage?.description ?? data.welcomeDescription, 4000),
     },
+    reasons: cleanReasons(data.reasons),
+    allowOwnerClose: onToBool(data.allowOwnerClose),
+    dmTranscript: onToBool(data.dmTranscript),
   };
   await conf.save();
 
@@ -792,13 +801,20 @@ app.post('/dashboard/:guildId/xp/save', async (req, res) => {
   const b = req.body || {};
   const conf = await getOrCreateConf(guildId);
 
+  let rewards = b.rewards;
+  if (rewards && !Array.isArray(rewards) && typeof rewards === 'object') rewards = Object.values(rewards);
+  const roleRewards = normalizeRewards((Array.isArray(rewards) ? rewards : [])
+    .map(r => ({ level: Math.min(1000, Math.max(1, toInt(r?.level, 0))), roleId: snowflakeOrEmpty(r?.roleId) }))
+    .filter(r => r.roleId && r.level >= 1)).slice(0, 25);
+
   conf.xp = {
     ...(conf.xp?.toObject?.() || {}),
     enabled: onToBool(b.xp_enabled),
-    levelUpMessageEnabled: onToBool(b.xp_levelUpMessageEnabled),
+    announceLevelUp: onToBool(b.xp_announce),
     levelUpMessage: str(b.xp_levelUpMessage, 2000) || undefined,
     messageChannelId: snowflakeOrEmpty(b.xp_messageChannelId),
-    role: snowflakeOrEmpty(b.xp_role),
+    roleRewards,
+    stackRoles: onToBool(b.xp_stackRoles),
   };
 
   await conf.save();
@@ -832,6 +848,92 @@ app.post('/dashboard/:guildId/social/save', async (req, res) => {
 
   if (wantsJson(req)) return res.json({ status: 'ok' });
   return res.redirect(`/dashboard/${guildId}?success=true#social`);
+});
+
+// ------------ ANNIVERSAIRES ------------
+app.post('/dashboard/:guildId/birthdays/save', async (req, res) => {
+  const guildId = req.guild.id;
+  const b = req.body || {};
+  const conf = await getOrCreateConf(guildId);
+  conf.birthdays = {
+    enabled: onToBool(b.birthdays_enabled),
+    channelId: snowflakeOrEmpty(b.birthdays_channelId),
+    message: str(b.birthdays_message, 1500),
+    roleId: snowflakeOrEmpty(b.birthdays_roleId),
+    hour: Math.min(23, Math.max(0, toInt(b.birthdays_hour, 9))),
+  };
+  await conf.save();
+  res.redirect(`/dashboard/${guildId}?saved=1#birthdays`);
+});
+
+// Test : envoie un message d'anniversaire d'exemple pour l'admin connecté (sans rôle, sans mémoriser)
+app.post('/dashboard/:guildId/birthdays/test', async (req, res) => {
+  const conf = await GuildConfig.findOne({ guildId: req.guild.id }).lean();
+  const channel = conf?.birthdays?.channelId ? req.guild.channels.cache.get(conf.birthdays.channelId) : null;
+  if (!channel?.isTextBased?.()) return res.redirect(`/dashboard/${req.guild.id}?bdTest=channel#birthdays`);
+  const text = (conf.birthdays.message || '🎂 Joyeux anniversaire {user} ! {age}').replaceAll('{user}', `<@${req.user.id}>`).replaceAll('{age}', '(25 ans)').trim();
+  await channel.send({ content: '*(Message de test)*', embeds: [{ color: 0xf47fff, description: text, thumbnail: { url: req.member.displayAvatarURL({ size: 256 }) } }], allowedMentions: { parse: [] } });
+  res.redirect(`/dashboard/${req.guild.id}?bdTest=ok#birthdays`);
+});
+
+// ------------ YOUTUBE ------------
+app.post('/dashboard/:guildId/social/youtube/save', async (req, res) => {
+  const guildId = req.guild.id;
+  const b = req.body || {};
+  const conf = await getOrCreateConf(guildId);
+  const previous = conf.social?.youtube?.channels || [];
+
+  // Une chaîne par ligne : lien, @pseudo ou ID « UC… ». Les chaînes déjà connues ne sont pas re-vérifiées.
+  const inputs = String(b.youtube_channels || '').split(/[\n,]+/).map(s => s.trim()).filter(Boolean).slice(0, 15);
+  const channels = [];
+  const failed = [];
+  for (const input of inputs) {
+    const known = previous.find(c => c.id === input || input.includes(c.id) || (c.name && c.name.toLowerCase() === input.replace(/^@/, '').toLowerCase()));
+    const found = known ? { id: known.id, name: known.name } : await resolveYouTubeChannel(input).catch(() => null);
+    if (found && !channels.some(c => c.id === found.id)) channels.push(found);
+    else if (!found) failed.push(input);
+  }
+
+  conf.social.youtube = {
+    enabled: onToBool(b.youtube_enabled),
+    channelId: snowflakeOrEmpty(b.youtube_channelId),
+    channels,
+    message: str(b.youtube_message, 1500),
+    pingEveryone: onToBool(b.youtube_pingEveryone),
+  };
+  await conf.save();
+  const params = new URLSearchParams({ saved: '1' });
+  if (failed.length) params.set('ytNotFound', failed.join(' | ').slice(0, 300));
+  res.redirect(`/dashboard/${guildId}?${params}#social`);
+});
+
+app.post('/dashboard/:guildId/social/youtube/test', async (req, res) => {
+  const conf = await GuildConfig.findOne({ guildId: req.guild.id }).lean();
+  const r = await sendYouTubeTest(req.guild, conf).catch(e => ({ ok: false, error: e.message }));
+  res.redirect(`/dashboard/${req.guild.id}?${new URLSearchParams(r.ok ? { ytTest: 'ok' } : { ytTest: r.error })}#social`);
+});
+
+// ------------ JEUX GRATUITS ------------
+app.post('/dashboard/:guildId/social/store/save', async (req, res) => {
+  const guildId = req.guild.id;
+  const b = req.body || {};
+  const providers = [].concat(b.store_providers || []).filter(p => ['epic', 'steam'].includes(p));
+  const conf = await getOrCreateConf(guildId);
+  conf.social.store = {
+    enabled: onToBool(b.store_enabled),
+    channelId: snowflakeOrEmpty(b.store_channelId),
+    providers: [...new Set(providers)],
+    message: str(b.store_message, 1500),
+    pingEveryone: onToBool(b.store_pingEveryone),
+  };
+  await conf.save();
+  res.redirect(`/dashboard/${guildId}?saved=1#social`);
+});
+
+app.post('/dashboard/:guildId/social/store/test', async (req, res) => {
+  const conf = await GuildConfig.findOne({ guildId: req.guild.id }).lean();
+  const r = await sendFreeGamesTest(req.guild, conf).catch(e => ({ ok: false, error: e.message }));
+  res.redirect(`/dashboard/${req.guild.id}?${new URLSearchParams(r.ok ? { storeTest: 'ok' } : { storeTest: r.error })}#social`);
 });
 
 // ------------ LOGS ------------
@@ -933,6 +1035,13 @@ app.get('/dashboard/:guildId', async (req, res) => {
   const previewTitle = formatTemplate(conf?.welcome?.title || '', sampleMember, guild);
   const previewMessage = formatTemplate(conf?.welcome?.message || '', sampleMember, guild);
 
+  // Prochains anniversaires (avec le nom affiché sur le serveur)
+  const upcoming = await upcomingBirthdays(guildId, 8).catch(() => []);
+  const birthdayList = await Promise.all(upcoming.map(async (b) => {
+    const m = guild.members.cache.get(b.userId) || await guild.members.fetch(b.userId).catch(() => null);
+    return { name: m?.displayName || 'Ancien membre', date: formatDate(b.day, b.month), inDays: b.inDays };
+  }));
+
   res.render('guild', {
     user,
     guild,
@@ -944,6 +1053,7 @@ app.get('/dashboard/:guildId', async (req, res) => {
     rrPanels,
     ticketConfig,
     recurringInfo,
+    birthdayList,
     baseUrl: `${req.protocol}://${req.get('host')}`,
     warnings: [],
     query: req.query,
@@ -1032,6 +1142,7 @@ app.use((req, res) => (wantsJson(req) ? res.status(404).json({ error: 'Introuvab
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   console.error('[DASHBOARD] Erreur :', err);
+  reportError(`Dashboard ${req.method} ${req.path}`, err);
   if (res.headersSent) return;
   if (wantsJson(req)) return res.status(500).json({ error: 'Erreur interne du serveur.' });
   renderError(res, 500, 'Une erreur inattendue est survenue. Réessaie dans un instant.');

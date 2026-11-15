@@ -15,6 +15,15 @@ import generateRankCard from '../utils/generateRankCard.js';
 import { postReactionRolePanel } from '../features/reactionRoles.js';
 import { composeWelcomeImageEx, resolveImageSrc } from '../utils/imageComposer.js';
 import generateLeaderboardCard from '../utils/generateLeaderboardCard.js';
+import { syncLevelRoles, normalizeRewards } from '../features/levelRoles.js';
+import { handleBirthdayCommand } from '../features/birthdays.js';
+
+// Après /xp-add ou /xp-set : met à jour les rôles de niveau du membre
+async function syncRolesAfterChange(interaction, userId, xp) {
+    const member = await interaction.guild.members.fetch(userId).catch(() => null);
+    const conf = await GuildConfig.findOne({ guildId: interaction.guild.id }).lean();
+    if (member && conf?.xp) await syncLevelRoles(member, levelFromXP(xp).level, conf.xp);
+}
 
 // Anti-abus /rep : un même membre ne peut noter la même personne qu'une fois toutes les 12 h
 const REP_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -719,6 +728,7 @@ case 'pfc': {
                     { new: true }
                 );
 
+                await syncRolesAfterChange(interaction, target.id, userXP.xp);
                 await interaction.reply({ content: `✅ **${amount} XP** ajoutés à **${target.tag || target.username}**. XP total: ${userXP.xp}.`, flags: MessageFlags.Ephemeral });
                 break;
             }
@@ -742,6 +752,7 @@ case 'pfc': {
                     { upsert: true, new: true }
                 );
 
+                await syncRolesAfterChange(interaction, target.id, amount);
                 await interaction.reply({ content: `✅ XP de **${target.username}** défini à **${amount}**. Niveau: ${newLevel}.`, flags: MessageFlags.Ephemeral });
                 break;
             }
@@ -765,15 +776,15 @@ case 'pfc': {
 
             case 'xp-role-rewards': {
                 const guildConf = await GuildConfig.findOne({ guildId: interaction.guild.id }).lean();
-                const rewards = guildConf?.features?.xpRoles || []; 
-                
+                // AVANT : lisait guildConf.features.xpRoles, un champ qui n'existait pas
+                const rewards = normalizeRewards(guildConf?.xp?.roleRewards);
+
                 if (rewards.length === 0) {
-                    return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Il n\'y a pas de récompenses de rôle par niveau configurées.' });
+                    return interaction.reply({ flags: MessageFlags.Ephemeral, content: 'Il n\'y a pas de récompenses de rôle par niveau configurées (dashboard → XP & niveaux).' });
                 }
-                
-                const description = rewards.sort((a, b) => a.level - b.level).map(r => {
-                    return `**Niveau ${r.level}** : <@&${r.roleId}>`;
-                }).join('\n');
+
+                const description = rewards.map(r => `**Niveau ${r.level}** : <@&${r.roleId}>`).join('\n')
+                    + (guildConf.xp.stackRoles === false ? '\n\n*Seul le rôle du plus haut niveau atteint est conservé.*' : '');
                 
                 const embed = new EmbedBuilder()
                     .setTitle('Récompenses de rôles par niveau')
@@ -1030,6 +1041,11 @@ case 'pfc': {
 
                 await channel.send({ embeds: [embed], files: [file], allowedMentions: { parse: [] } });
                 await interaction.editReply({ content: `Aperçu du panneau de bienvenue envoyé dans ${channel}.` });
+                break;
+            }
+
+            case 'anniversaire': {
+                await handleBirthdayCommand(interaction);
                 break;
             }
 

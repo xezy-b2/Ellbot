@@ -114,6 +114,14 @@ const XpSchema = new mongoose.Schema({
   // CORRECTION ESSENTIELLE : Le nom du champ doit être 'messageChannelId' pour correspondre à votre server.js
   messageChannelId: { type: String, default: '' },
   cardBackgroundUrl: { type: String, default: '' },
+  // Annoncer les passages de niveau. Non défini = comportement d'origine (annonce seulement si un salon est choisi)
+  announceLevelUp: { type: Boolean },
+  // Rôles donnés automatiquement en atteignant un niveau
+  roleRewards: {
+    type: [new mongoose.Schema({ level: { type: Number, required: true }, roleId: { type: String, required: true } }, { _id: false })],
+    default: [],
+  },
+  stackRoles: { type: Boolean, default: true }, // garder les rôles des niveaux précédents
 }, { _id: false });
 
 
@@ -158,7 +166,24 @@ const SocialSchema = new mongoose.Schema({
     message: { type: String, default: '' },
     embedColor: { type: String, default: '#5865F2' },
     pingEveryone: { type: Boolean, default: false },
-  }
+  },
+  youtube: {
+    enabled: { type: Boolean, default: false },
+    channelId: { type: String, default: '' },  // salon Discord d'annonce
+    channels: {                                 // chaînes YouTube suivies
+      type: [new mongoose.Schema({ id: String, name: String }, { _id: false })],
+      default: [],
+    },
+    message: { type: String, default: '' },
+    pingEveryone: { type: Boolean, default: false },
+  },
+  store: {
+    enabled: { type: Boolean, default: false },
+    channelId: { type: String, default: '' },
+    providers: { type: [String], default: ['epic'] }, // 'epic', 'steam'
+    message: { type: String, default: '' },
+    pingEveryone: { type: Boolean, default: false },
+  },
 }, { _id: false });
 
 const LogsSchema = new mongoose.Schema({
@@ -180,9 +205,11 @@ const PanelMessageSchema = new mongoose.Schema({
     description: { type: String, default: '' },
 }, { _id: false });
 
+// Message affiché DANS le ticket. Vide = « Ticket #N » + texte d'accueil par défaut.
+// (avant, il reprenait par erreur le texte du panneau d'ouverture)
 const WelcomeMessageSchema = new mongoose.Schema({
-  title: { type: String, default: 'Ouvrir un ticket' },
-  description: { type: String, default: 'Cliquez sur le bouton ci-dessous pour ouvrir un ticket. Un membre de l\'équipe de support vous y rejoindra.' },
+  title: { type: String, default: '' },
+  description: { type: String, default: '' },
 }, { _id: false });
 
 const TicketSystemSchema = new mongoose.Schema({
@@ -193,6 +220,13 @@ const TicketSystemSchema = new mongoose.Schema({
   logChannelId: { type: String, default: '' },
   panelMessage: { type: PanelMessageSchema, default: () => ({}) },
   welcomeMessage: { type: WelcomeMessageSchema, default: () => ({}) },
+  // Motifs proposés à l'ouverture (menu déroulant). Vide = simple bouton.
+  reasons: {
+    type: [new mongoose.Schema({ label: String, emoji: String, description: String }, { _id: false })],
+    default: [],
+  },
+  allowOwnerClose: { type: Boolean, default: true }, // le membre peut fermer son propre ticket
+  dmTranscript: { type: Boolean, default: false },   // transcription envoyée en MP au membre
 }, { _id: false });
 
 const GuildConfigSchema = new mongoose.Schema({
@@ -211,6 +245,13 @@ const GuildConfigSchema = new mongoose.Schema({
 
 
   xp: { type: XpSchema, default: () => ({}) },
+  birthdays: {
+    enabled: { type: Boolean, default: false },
+    channelId: { type: String, default: '' },
+    message: { type: String, default: '' },
+    roleId: { type: String, default: '' },  // rôle donné pendant la journée
+    hour: { type: Number, default: 9 },     // heure de l'annonce (Paris)
+  },
   monthlyLeaderboard: { type: MonthlyLeaderboardSchema, default: () => ({}) },
   automod: { type: AutomodSchema, default: () => ({}) }, 
   customCommands: { type: [CustomCommandSchema], default: [] },
@@ -223,6 +264,16 @@ const GuildConfigSchema = new mongoose.Schema({
   strict: true,
   timestamps: true
 });
+
+// Vide le cache mémoire (utils/configCache.js) dès qu'une config est modifiée
+let invalidate = null;
+import('../utils/configCache.js').then(m => { invalidate = m.invalidateGuildConfig; }).catch(() => {});
+function invalidateFromQuery() {
+  const id = this.getFilter?.()?.guildId;
+  invalidate?.(typeof id === 'string' ? id : undefined);
+}
+GuildConfigSchema.post('save', (doc) => invalidate?.(doc.guildId));
+GuildConfigSchema.post(['findOneAndUpdate', 'updateOne', 'updateMany', 'deleteOne', 'findOneAndDelete'], invalidateFromQuery);
 
 const GuildConfig = mongoose.model('GuildConfig', GuildConfigSchema);
 
