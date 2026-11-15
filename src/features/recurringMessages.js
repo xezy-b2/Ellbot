@@ -1,6 +1,7 @@
 // src/features/recurringMessages.js
 import GuildConfig from '../models/GuildConfig.js';
 import cron from 'node-cron';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 
 export const TIMEZONE = 'Europe/Paris';
 
@@ -90,6 +91,53 @@ export function getNextRunFor(id) {
   try { return task?.getNextRun?.() || null; } catch { return null; }
 }
 
+const HTTP_URL = /^https?:\/\/[^\s<>]+$/i;
+// Emoji Unicode (un seul, éventuellement composé) ou emoji du serveur <:nom:id> / <a:nom:id>
+const EMOJI = /^(<a?:\w{2,32}:\d{17,20}>|(\p{Extended_Pictographic}|\p{Regional_Indicator})(\u{FE0F}|\u{200D}|\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator})*)$/u;
+
+/** Nettoie les boutons saisis : 5 max, libellé ≤ 80, URL http(s) obligatoire. */
+export function cleanButtons(input) {
+  const list = Array.isArray(input) ? input : (input && typeof input === 'object' ? Object.values(input) : []);
+  return list
+    .map(b => ({
+      label: String(b?.label ?? '').trim().slice(0, 80),
+      url: String(b?.url ?? '').trim().slice(0, 512),
+      emoji: String(b?.emoji ?? '').trim().slice(0, 64),
+    }))
+    .map(b => ({ ...b, emoji: EMOJI.test(b.emoji) ? b.emoji : '' }))
+    // Discord refuse un bouton sans texte ni emoji
+    .filter(b => (b.label || b.emoji) && HTTP_URL.test(b.url))
+    .slice(0, 5);
+}
+
+/** Construit le contenu Discord (texte ou embed + boutons) d'un message récurrent. */
+export function buildRecurringPayload(msg) {
+  const payload = {};
+  const embed = msg.embed || {};
+  if (embed.enabled) {
+    const e = new EmbedBuilder().setDescription(String(msg.content).slice(0, 4096));
+    if (embed.title) e.setTitle(String(embed.title).slice(0, 256));
+    e.setColor(/^#[0-9a-f]{6}$/i.test(embed.color || '') ? parseInt(embed.color.slice(1), 16) : 0x5865f2);
+    if (HTTP_URL.test(embed.imageUrl || '')) e.setImage(embed.imageUrl);
+    payload.embeds = [e];
+  } else {
+    payload.content = String(msg.content).slice(0, 2000);
+  }
+
+  const buttons = cleanButtons(msg.buttons);
+  if (buttons.length) {
+    const row = new ActionRowBuilder();
+    for (const b of buttons) {
+      const btn = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(b.url);
+      if (b.label) btn.setLabel(b.label);
+      if (b.emoji) btn.setEmoji(b.emoji);
+      row.addComponents(btn);
+    }
+    payload.components = [row];
+  }
+  return payload;
+}
+
 /**
  * Envoie un message récurrent tout de suite et enregistre la date d'envoi.
  * @returns {Promise<{ ok: boolean, error?: string }>}
@@ -99,7 +147,7 @@ export async function sendRecurringNow(client, guildId, msg) {
   const channel = guild?.channels.cache.get(msg.channelId);
   if (!channel?.isTextBased?.()) return { ok: false, error: 'channel' };
   try {
-    await channel.send({ content: msg.content });
+    await channel.send(buildRecurringPayload(msg));
     await GuildConfig.updateOne(
       { guildId, 'recurringMessages.id': msg.id },
       { $set: { 'recurringMessages.$.lastSentAt': new Date() } }

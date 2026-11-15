@@ -57,7 +57,7 @@
     guildId: guild.id,
     rrPanels: panels.map(p => ({ _id: String(p._id), title: p.title || '', description: p.description || '', channelId: p.channelId || '', mode: p.mode || 'multi', type: p.type || 'dropdown', entries: (p.entries || []).map(e => ({ emoji: e.emoji || '', label: e.label || '', roleId: e.roleId || '', style: e.style || 'Secondary' })) })),
     roles: roleList.map(r => ({ id: r.id, name: r.name })),
-    recurring: recs.map(r => { const sc = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]?.schedule) || r.schedule || {}; return { id: r.id, channelId: r.channelId, content: r.content, cron: r.cron, schedule: { mode: sc.mode || 'custom', time: sc.time || '09:00', days: [...(sc.days || [])], monthDay: sc.monthDay || 1, everyHours: sc.everyHours || 1 } }; }),
+    recurring: recs.map(r => { const sc = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]?.schedule) || r.schedule || {}; return { id: r.id, channelId: r.channelId, content: r.content, cron: r.cron, buttons: (r.buttons || []).map(x => ({ label: x.label || '', url: x.url || '', emoji: x.emoji || '' })), embed: { enabled: !!r.embed?.enabled, title: r.embed?.title || '', color: r.embed?.color || '#5865F2', imageUrl: r.embed?.imageUrl || '' }, schedule: { mode: sc.mode || 'custom', time: sc.time || '09:00', days: [...(sc.days || [])], monthDay: sc.monthDay || 1, everyHours: sc.everyHours || 1 } }; }),
     sample: { mention: user?.global_name || user?.username || 'Utilisateur', username: user?.username || 'Utilisateur', displayName: user?.global_name || user?.username || 'Utilisateur' },
     server: { name: guild.name || '', memberCount: guild.memberCount || 0 },
   };
@@ -430,8 +430,36 @@
           <div class="field"><label>Salon</label><select name="channelId" id="rec-channel" required><%- channelOptions('', '— Choisir —') %></select></div>
           <div class="field">
             <label>Message</label>
-            <textarea name="content" id="rec-content" maxlength="2000" required placeholder="N'oubliez pas de voter pour le serveur ! 🗳️"></textarea>
-            <span class="hint"><span id="rec-count">0</span> / 2000 caractères · les mentions comme <code>@everyone</code> ou <code>&lt;@&amp;ID_du_rôle&gt;</code> fonctionnent</span>
+            <textarea name="content" id="rec-content" maxlength="4096" required placeholder="N'oubliez pas de voter pour le serveur ! 🗳️"></textarea>
+            <span class="hint"><span id="rec-count">0</span> / <span id="rec-max">2000</span> caractères · <span id="rec-mention-hint">les mentions comme <code>@everyone</code> ou <code>&lt;@&amp;ID_du_rôle&gt;</code> fonctionnent</span></span>
+          </div>
+
+          <label class="toggle-row"><span class="toggle-text"><strong>Afficher dans un encadré (embed)</strong><span>Titre, barre de couleur et image, comme les annonces du bot</span></span><input type="checkbox" class="switch" name="embed_enabled" value="on" id="rec-embed" /></label>
+          <div class="form-grid" id="rec-embed-fields" hidden>
+            <div class="field span-2"><label>Titre de l'encadré</label><input type="text" name="embed_title" id="rec-embed-title" maxlength="256" placeholder="📢 Rappel" /></div>
+            <div class="field"><label>Couleur</label><input type="color" name="embed_color" id="rec-embed-color" value="#5865F2" /></div>
+            <div class="field"><label>Image (URL, facultatif)</label><input type="url" name="embed_imageUrl" id="rec-embed-image" placeholder="https://…" /></div>
+          </div>
+
+          <div class="field">
+            <div class="inline" style="justify-content:space-between"><label>Boutons (liens)</label><button type="button" class="btn btn-ghost btn-sm" id="rec-add-button">＋ Ajouter un bouton</button></div>
+            <div class="list" id="rec-buttons"></div>
+            <span class="hint">5 boutons maximum. Ils ouvrent le lien indiqué (site, Twitch, vote…).</span>
+          </div>
+
+          <div class="field">
+            <label>Aperçu</label>
+            <div class="discord">
+              <div class="discord-msg">
+                <img class="avatar" src="<%= bot?.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png' %>" alt="" />
+                <div style="min-width:0;flex:1">
+                  <div class="discord-author"><%= bot?.username || 'Bot' %> <span class="bot-tag">BOT</span> <time>Aujourd'hui</time></div>
+                  <div class="discord-content" id="rec-pv-text"></div>
+                  <div class="discord-embed" id="rec-pv-embed" hidden><div class="e-title" id="rec-pv-title"></div><div class="e-desc" id="rec-pv-desc"></div><img id="rec-pv-image" alt="" hidden /></div>
+                  <div class="discord-buttons" id="rec-pv-buttons"></div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -476,7 +504,7 @@
               <% recs.forEach(r => { const ch = allChannels.find(c => c.id === r.channelId); const info = (typeof recurringInfo !== 'undefined' && recurringInfo[r.id]) || {}; const paused = r.enabled === false; %>
                 <div class="rec-item <%= paused ? 'paused' : '' %>">
                   <div class="inline" style="justify-content:space-between">
-                    <span class="inline"><span class="tag"># <%= ch?.name || 'salon supprimé' %></span><span class="chip <%= paused ? '' : 'on' %>"><%= paused ? 'En pause' : 'Actif' %></span></span>
+                    <span class="inline"><span class="tag"># <%= ch?.name || 'salon supprimé' %></span><span class="chip <%= paused ? '' : 'on' %>"><%= paused ? 'En pause' : 'Actif' %></span><% if (r.embed?.enabled) { %><span class="chip plain">Encadré</span><% } %><% if (r.buttons?.length) { %><span class="chip plain"><%= r.buttons.length %> bouton<%= r.buttons.length > 1 ? 's' : '' %></span><% } %></span>
                   </div>
                   <strong class="rec-when"><%= info.description || r.cron %></strong>
                   <p class="rec-content"><%= r.content %></p>

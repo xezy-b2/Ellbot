@@ -57,6 +57,22 @@ const RecurringMessageSchema = new mongoose.Schema({
   },
   enabled: { type: Boolean, default: true },
   lastSentAt: { type: Date, default: null },
+  // Boutons-liens affichés sous le message (5 max)
+  buttons: {
+    type: [new mongoose.Schema({
+      label: { type: String, default: '' },
+      url: { type: String, default: '' },
+      emoji: { type: String, default: '' },
+    }, { _id: false })],
+    default: [],
+  },
+  // Présentation en encadré (embed) au lieu d'un simple texte
+  embed: {
+    enabled: { type: Boolean, default: false },
+    title: { type: String, default: '' },
+    color: { type: String, default: '#5865F2' },
+    imageUrl: { type: String, default: '' },
+  },
 }, { _id: false });
 
 const WelcomeSchema = new mongoose.Schema({

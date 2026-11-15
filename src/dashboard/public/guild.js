@@ -39,7 +39,7 @@
     uploadError: (v) => (v === 'FORMAT_INVALIDE' ? 'Format refusé : PNG, JPG, GIF ou WebP uniquement.' : v === 'NOFILE' ? 'Aucun fichier sélectionné.' : `Échec de l'envoi : ${v}`),
     rrError: (v) => ({ DUPLICATE_ROLES: 'Un même rôle apparaît deux fois dans le panneau.', NOT_FOUND: "Ce panneau n'existe plus.", CHANNEL: "Choisis un salon textuel avant de publier.", NO_ENTRIES: 'Ajoute au moins un rôle avant de publier.' }[v] || `Erreur : ${v}`),
     cmdError: () => 'Nom (sans espace) et réponse obligatoires.',
-    recError: (v) => ({ cron: 'Expression cron invalide. Exemple : 0 9 * * * = tous les jours à 9h.', days: 'Choisis au moins un jour de la semaine.', notfound: "Ce message n'existe plus.", missing: 'Le salon et le message sont obligatoires.' }[v] || 'Erreur lors de l\'enregistrement.'),
+    recError: (v) => ({ toolong: 'Message trop long : 2000 caractères max en texte simple (4096 dans un encadré).', cron: 'Expression cron invalide. Exemple : 0 9 * * * = tous les jours à 9h.', days: 'Choisis au moins un jour de la semaine.', notfound: "Ce message n'existe plus.", missing: 'Le salon et le message sont obligatoires.' }[v] || 'Erreur lors de l\'enregistrement.'),
     recSendError: (v) => ({ channel: "Envoi impossible : le salon n'existe plus.", perms: "Envoi impossible : le bot n'a pas la permission d'écrire dans ce salon." }[v] || "L'envoi a échoué."),
     welcomeTest: (v, q) => (v === 'error' ? `Échec du test : ${q.get('w') || 'vérifie le salon et les permissions du bot.'}` : null),
     socialTest: (v) => ({ nosocial: "Twitch n'est pas encore configuré.", nosent: 'Active Twitch et choisis un salon, puis enregistre.', error: "Le bot n'a pas pu envoyer le message (permissions ?)." }[v] || null),
@@ -140,6 +140,51 @@
     const dayInputs = $$('input[name="days"]', recForm);
     const content = $('#rec-content');
     const mode = () => modeInputs.find(i => i.checked)?.value || 'daily';
+    const embedToggle = $('#rec-embed');
+    const buttonsBox = $('#rec-buttons');
+    let btnIdx = 0;
+
+    function addButton(b = {}) {
+      if ($$('.button-row', buttonsBox).length >= 5) return toast('5 boutons maximum.', 'error');
+      const i = btnIdx++;
+      const row = document.createElement('div');
+      row.className = 'button-row';
+      row.innerHTML = `
+        <div class="field"><label>Emoji</label><input type="text" name="buttons[${i}][emoji]" value="${escapeHtml(b.emoji)}" placeholder="🔗" maxlength="64" /></div>
+        <div class="field"><label>Texte</label><input type="text" name="buttons[${i}][label]" value="${escapeHtml(b.label)}" placeholder="Voter" maxlength="80" /></div>
+        <div class="field url-field"><label>Lien</label><input type="url" name="buttons[${i}][url]" value="${escapeHtml(b.url)}" placeholder="https://…" required /></div>
+        <button type="button" class="btn btn-danger btn-sm" aria-label="Retirer le bouton">✕</button>`;
+      row.querySelector('button').addEventListener('click', () => { row.remove(); refresh(); });
+      buttonsBox.appendChild(row);
+      refresh();
+    }
+
+    function renderPreview() {
+      const isEmbed = embedToggle.checked;
+      const text = content.value;
+      $('#rec-embed-fields').hidden = !isEmbed;
+      $('#rec-max').textContent = isEmbed ? '4096' : '2000';
+      $('#rec-mention-hint').innerHTML = isEmbed
+        ? 'dans un encadré, <code>@everyone</code> et les mentions de rôles <b>ne notifient pas</b>'
+        : 'les mentions comme <code>@everyone</code> ou <code>&lt;@&amp;ID_du_rôle&gt;</code> fonctionnent';
+      $('#rec-pv-text').textContent = isEmbed ? '' : (text || 'Ton message apparaîtra ici.');
+      $('#rec-pv-embed').hidden = !isEmbed;
+      if (isEmbed) {
+        $('#rec-pv-embed').style.borderLeftColor = $('#rec-embed-color').value;
+        $('#rec-pv-title').textContent = $('#rec-embed-title').value;
+        $('#rec-pv-title').hidden = !$('#rec-embed-title').value;
+        $('#rec-pv-desc').textContent = text || 'Ton message apparaîtra ici.';
+        const img = $('#rec-embed-image').value.trim();
+        $('#rec-pv-image').hidden = !/^https?:\/\//.test(img);
+        if (/^https?:\/\//.test(img)) $('#rec-pv-image').src = img;
+      }
+      $('#rec-pv-buttons').innerHTML = $$('.button-row', buttonsBox).map(r => {
+        const [emoji, label] = $$('input', r).map(i => i.value.trim());
+        return (emoji || label) ? `<span>${escapeHtml([emoji, label].filter(Boolean).join(' '))}</span>` : '';
+      }).join('');
+    }
+    $('#rec-add-button').addEventListener('click', () => addButton());
+    $('#rec-pv-image').addEventListener('error', (e) => { e.target.hidden = true; });
 
     function describe() {
       const time = $('#rec-time').value || '09:00';
@@ -168,6 +213,7 @@
       $('#rec-cron').required = m === 'custom';
       $('#rec-summary').textContent = `${describe()} (heure de Paris)`;
       $('#rec-count').textContent = content.value.length;
+      renderPreview();
     }
     recForm.addEventListener('input', refresh);
     recForm.addEventListener('change', refresh);
@@ -176,6 +222,7 @@
 
     function resetForm() {
       recForm.reset();
+      buttonsBox.innerHTML = '';
       recForm.setAttribute('action', createAction);
       $('#rec-id').value = '';
       $('#rec-form-title').textContent = 'Nouveau message';
@@ -200,6 +247,11 @@
       $('#rec-monthDay').value = String(r.schedule.monthDay);
       dayInputs.forEach(i => { i.checked = r.schedule.days.includes(Number(i.value)); });
       $('#rec-cron').value = r.schedule.mode === 'custom' ? r.cron : '';
+      embedToggle.checked = !!r.embed?.enabled;
+      $('#rec-embed-title').value = r.embed?.title || '';
+      $('#rec-embed-color').value = r.embed?.color || '#5865F2';
+      $('#rec-embed-image').value = r.embed?.imageUrl || '';
+      (r.buttons || []).forEach(b => addButton(b));
       $('#rec-form-title').textContent = 'Modifier le message';
       $('#rec-form-sub').textContent = 'Les changements sont pris en compte dès l\'enregistrement.';
       $('#rec-submit').textContent = 'Enregistrer';
@@ -213,7 +265,10 @@
     $$('[data-rec-edit]').forEach(b => b.addEventListener('click', () => editMessage(b.dataset.recEdit)));
     $('#rec-cancel').addEventListener('click', resetForm);
     recForm.addEventListener('submit', (e) => {
-      if (mode() === 'weekly' && !dayInputs.some(i => i.checked)) { e.preventDefault(); toast('Choisis au moins un jour de la semaine.', 'error'); }
+      if (mode() === 'weekly' && !dayInputs.some(i => i.checked)) { e.preventDefault(); return toast('Choisis au moins un jour de la semaine.', 'error'); }
+      if (!embedToggle.checked && content.value.length > 2000) { e.preventDefault(); return toast('2000 caractères maximum en texte simple. Active l\'encadré pour aller jusqu\'à 4096.', 'error'); }
+      const emptyLabel = $$('.button-row', buttonsBox).find(r => { const [emoji, label] = $$('input', r).map(i => i.value.trim()); return !emoji && !label; });
+      if (emptyLabel) { e.preventDefault(); return toast('Chaque bouton a besoin d\'un texte ou d\'un emoji.', 'error'); }
     });
 
     refresh();

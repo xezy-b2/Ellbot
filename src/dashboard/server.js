@@ -17,7 +17,7 @@ import GuildConfig from '../models/GuildConfig.js';
 import ReactionRole from '../models/ReactionRole.js';
 import { postReactionRolePanel } from '../features/reactionRoles.js';
 import { composeWelcomeImageEx, resolveImageSrc } from '../utils/imageComposer.js';
-import { startRecurringMessages, buildSchedule, describeSchedule, inferSchedule, getNextRunFor, sendRecurringNow, TIMEZONE } from '../features/recurringMessages.js';
+import { startRecurringMessages, buildSchedule, describeSchedule, inferSchedule, getNextRunFor, sendRecurringNow, cleanButtons, TIMEZONE } from '../features/recurringMessages.js';
 import { MONGO_URI } from '../database.js';
 import { DATA_DIR, UPLOADS_DIR } from '../paths.js';
 
@@ -687,7 +687,7 @@ async function reloadRecurring(client) {
 // Lit le formulaire (salon, message, planning) ; renvoie { value } ou { error }
 function readRecurringForm(body = {}) {
   const channelId = snowflakeOrEmpty(body.channelId);
-  const content = str(body.content, 2000);
+  const content = str(body.content, 4096);
   if (!channelId || !content.trim()) return { error: 'missing' };
   const built = buildSchedule({
     mode: body.mode,
@@ -698,7 +698,16 @@ function readRecurringForm(body = {}) {
     cron: str(body.cron, 100),
   });
   if (built.error) return { error: built.error };
-  return { value: { channelId, content, cron: built.cron, schedule: built.schedule } };
+  const embedEnabled = onToBool(body.embed_enabled);
+  const embed = {
+    enabled: embedEnabled,
+    title: str(body.embed_title, 256).trim(),
+    color: hexColor(body.embed_color, '#5865F2'),
+    imageUrl: httpUrlOrEmpty(body.embed_imageUrl),
+  };
+  // Un message en texte simple est limité à 2000 caractères (4096 dans un embed)
+  if (!embedEnabled && content.length > 2000) return { error: 'toolong' };
+  return { value: { channelId, content, cron: built.cron, schedule: built.schedule, buttons: cleanButtons(body.buttons), embed } };
 }
 
 const recRedirect = (res, guildId, params) => res.redirect(`/dashboard/${guildId}?${new URLSearchParams(params)}#recurring`);
