@@ -3,6 +3,7 @@
 import { getGuildConfig } from '../utils/configCache.js';
 import { EmbedBuilder } from 'discord.js';
 import { logDeletedMessage, logBulkDelete } from './deleteLogs.js';
+import { logEditedMessage } from './editLogs.js';
 
 function getLogChannel(guild, conf) {
   const s = conf?.logs;
@@ -27,41 +28,20 @@ export function bindLogHandlers(client) {
     ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
   });
 
-  client.on('messageUpdate', async (_old, msg) => {
-    // AVANT : avec les partials activés, msg.author pouvait être null → crash
+  client.on('messageUpdate', async (oldMsg, msg) => {
+    // Avec les partials activés, le nouveau message peut être incomplet : on le récupère
     if (msg.partial) msg = await msg.fetch().catch(() => null);
     if (!msg?.guild || !msg.author || msg.author.bot) return;
-    // Si le contenu n'a pas changé (ex : simple ajout d'embed), on s'arrête
-    if (_old.content != null && _old.content === msg.content) return;
+    // Rien de visible n'a changé (aperçu de lien ajouté, épinglage…)
+    if (!oldMsg.partial && oldMsg.content === msg.content && oldMsg.attachments?.size === msg.attachments.size) return;
 
     const conf = await getGuildConfig(msg.guild.id).catch(() => null);
-    if (!conf?.logs?.enabled || !conf.logs.messageEdited) return; 
-    
+    if (!conf?.logs?.enabled || !conf.logs.messageEdited) return;
+
     const ch = getLogChannel(msg.guild, conf);
-    if (!ch) return;
+    if (!ch || ch.id === msg.channelId) return;
 
-    // --- CORRECTION messageUpdate ---
-    const oldContent = _old.content?.slice(0, 1024) ?? '(Contenu initial non disponible)';
-    const newContent = msg.content?.slice(0, 1024) ?? '(Nouveau contenu non disponible)';
-    
-    if (oldContent === '(Contenu initial non disponible)' && newContent === '(Nouveau contenu non disponible)') return;
-    
-    const e = new EmbedBuilder()
-      .setColor(0xf59e0b)
-      .setTitle('📝 Message édité')
-      .setDescription(`**Auteur :** ${msg.author.tag} (<@${msg.author.id}>)
-**Ancien contenu :**
-\`\`\`
-${oldContent}
-\`\`\`
-**Nouveau contenu :**
-\`\`\`
-${newContent}
-\`\`\`
-**Dans le salon :** <#${msg.channel.id}> [Voir le message](${msg.url})`)
-      .setTimestamp(new Date());
-
-    ch.send({ embeds: [e], allowedMentions: { parse: [] } }).catch(()=>{});
+    await logEditedMessage(oldMsg, msg, ch);
   });
 
   client.on('messageDelete', async (message) => {
