@@ -81,7 +81,7 @@ function buildGameMessage(store, game, { test = false } = {}) {
   const parts = [];
   if (store.pingEveryone && !test) parts.push('@everyone');
   parts.push((store.message || '🎮 Jeu gratuit à récupérer : **{game}** !').replaceAll('{game}', game.title).replaceAll('{store}', game.store));
-  return { content: parts.join(' ').slice(0, 2000), embeds: [embed], allowedMentions: { parse: store.pingEveryone && !test ? ['everyone'] : [] } };
+  return { content: parts.join(' ').slice(0, 2000), embeds: [embed], allowedMentions: { parse: test ? [] : ['roles', 'users', ...(store.pingEveryone ? ['everyone'] : [])] } };
 }
 
 async function collectGames(providers) {

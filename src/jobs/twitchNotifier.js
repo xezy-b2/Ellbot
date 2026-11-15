@@ -264,7 +264,8 @@ async function getStreamStatus(client, config) {
                             await channel.send({
                                 content: messageContent || undefined,
                                 embeds: [embed],
-                                allowedMentions: { parse: gc.social.twitch.pingEveryone ? ['everyone'] : [] },
+                                // Les rôles/membres écrits dans le message notifient ; @everyone dépend de l'interrupteur
+                                allowedMentions: { parse: ['roles', 'users', ...(gc.social.twitch.pingEveryone ? ['everyone'] : [])] },
                             });
                             atLeastOneSent = true;
                             LOG(`Notification envoyée → guilde ${gc.guildId} pour '${username}'`);

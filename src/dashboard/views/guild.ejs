@@ -620,7 +620,7 @@
           <div class="field"><label>Salon d'annonce</label><select id="twitch-channelId" name="twitch_channelId"><%- channelOptions(tw.channelId) %></select></div>
           <div class="field"><label>Couleur de l'embed</label><input type="color" id="twitch-embedColor" name="twitch_embedColor" value="<%= tw.embedColor || '#9146FF' %>" /></div>
         </div>
-        <div class="field"><label>Message au-dessus de l'annonce</label><textarea id="twitch-message" name="twitch_message" placeholder="Le live a commencé, venez dire bonjour ! 🔴"><%= tw.message || '' %></textarea></div>
+        <div class="field"><label>Message au-dessus de l'annonce</label><textarea id="twitch-message" name="twitch_message" placeholder="Le live a commencé, venez dire bonjour ! 🔴"><%= tw.message || '' %></textarea><span class="hint">Pour pinger un rôle : <code>&lt;@&amp;ID_du_rôle&gt;</code> (clic droit sur le rôle → Copier l'identifiant).</span></div>
         <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="hidden" name="twitch_pingEveryone" value="off" /><input type="checkbox" class="switch" id="twitch-pingEveryone" name="twitch_pingEveryone" value="on" <%= checked(tw.pingEveryone) %> /></label>
         <div class="actions">
           <button class="btn btn-ghost" type="submit" form="social-test-form">Envoyer un test</button>
@@ -641,7 +641,7 @@
           <% if ((yt.channels || []).length) { %><div class="inline"><% yt.channels.forEach(c => { %><span class="tag"><%= c.name || c.id %></span><% }) %></div><% } %>
         </div>
         <div class="field"><label>Salon d'annonce</label><select name="youtube_channelId"><%- channelOptions(yt.channelId) %></select></div>
-        <div class="field"><label>Message</label><input type="text" name="youtube_message" maxlength="1500" placeholder="📺 **{channel}** a publié une nouvelle vidéo !" value="<%= yt.message || '' %>" /><span class="hint">Variables : <code>{channel}</code> <code>{title}</code></span></div>
+        <div class="field"><label>Message</label><input type="text" name="youtube_message" maxlength="1500" placeholder="📺 **{channel}** a publié une nouvelle vidéo !" value="<%= yt.message || '' %>" /><span class="hint">Variables : <code>{channel}</code> <code>{title}</code> · rôle à pinger : <code>&lt;@&amp;ID_du_rôle&gt;</code></span></div>
         <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="checkbox" class="switch" name="youtube_pingEveryone" value="on" <%= checked(yt.pingEveryone) %> /></label>
         <div class="actions">
           <button class="btn btn-ghost" type="submit" form="yt-test-form">Envoyer la dernière vidéo (test)</button>
@@ -663,7 +663,7 @@
           </div>
         </div>
         <div class="field"><label>Salon d'annonce</label><select name="store_channelId"><%- channelOptions(st.channelId) %></select></div>
-        <div class="field"><label>Message</label><input type="text" name="store_message" maxlength="1500" placeholder="🎮 Jeu gratuit à récupérer : **{game}** !" value="<%= st.message || '' %>" /><span class="hint">Variables : <code>{game}</code> <code>{store}</code></span></div>
+        <div class="field"><label>Message</label><input type="text" name="store_message" maxlength="1500" placeholder="🎮 Jeu gratuit à récupérer : **{game}** !" value="<%= st.message || '' %>" /><span class="hint">Variables : <code>{game}</code> <code>{store}</code> · rôle à pinger : <code>&lt;@&amp;ID_du_rôle&gt;</code></span></div>
         <label class="toggle-row"><span class="toggle-text"><strong>Mentionner @everyone</strong></span><input type="checkbox" class="switch" name="store_pingEveryone" value="on" <%= checked(st.pingEveryone) %> /></label>
         <div class="actions">
           <button class="btn btn-ghost" type="submit" form="store-test-form">Voir les jeux gratuits actuels (test)</button>
